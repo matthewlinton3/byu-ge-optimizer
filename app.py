@@ -13,6 +13,7 @@ from rmp import enrich_with_rmp
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from pathways import get_remaining_requirements, PATHWAYS
 from mymap_scraper import login_and_scrape, format_debug_report
+from ge_requirements import GE_REQUIREMENTS
 try:
     from mymap_browser_login import (
         browser_login_and_scrape,
@@ -442,6 +443,18 @@ def _cleanup_railway_session():
     st.session_state.railway_screenshot  = None
 
 
+# ── Shared helper: map course codes → completed GE categories ────────────────
+def _completed_from_courses(courses_taken: set) -> set:
+    """
+    Return the set of GE categories where at least one taken course appears
+    in GE_REQUIREMENTS, giving us an authoritative cross-reference check.
+    """
+    return {
+        cat for cat, codes in GE_REQUIREMENTS.items()
+        if any(c in courses_taken for c in codes)
+    }
+
+
 # ── Shared helper: process a MyMap scrape result into session state ──────────
 def _apply_mymap_result(scrape_result: dict):
     """Store a scrape result dict into session state and render success/error."""
@@ -450,12 +463,14 @@ def _apply_mymap_result(scrape_result: dict):
     st.session_state.mymap_debug_report  = debug_report
 
     if scrape_result["success"]:
-        completed     = scrape_result["ge_completed"]
-        remaining     = scrape_result["ge_remaining"]
         courses_taken = scrape_result["completed_courses"] | scrape_result["in_progress_courses"]
 
+        # Cross-reference taken courses against GE_REQUIREMENTS for authoritative completion
+        completed = scrape_result["ge_completed"] | _completed_from_courses(courses_taken)
+        remaining = set(GE_CATEGORIES.keys()) - completed
+
         st.session_state.pdf_completed   = completed
-        st.session_state.pdf_remaining   = remaining or (set(GE_CATEGORIES.keys()) - completed)
+        st.session_state.pdf_remaining   = remaining
         st.session_state.courses_taken   = courses_taken
         st.session_state.manual_override = False
         st.session_state.data_source     = "mymap"
@@ -778,10 +793,12 @@ with input_tab2:
                 st.session_state.manual_override = True
 
             else:
-                completed     = parse_result["completed"]
                 courses_taken = parse_result.get("courses_taken", set())
+                # Cross-reference taken courses against GE_REQUIREMENTS for authoritative completion
+                completed     = parse_result["completed"] | _completed_from_courses(courses_taken)
+                remaining     = set(GE_CATEGORIES.keys()) - completed
                 st.session_state.pdf_completed   = completed
-                st.session_state.pdf_remaining   = parse_result["remaining"]
+                st.session_state.pdf_remaining   = remaining
                 st.session_state.pdf_confidence  = parse_result["parse_confidence"]
                 st.session_state.courses_taken   = courses_taken
                 st.session_state.manual_override = False

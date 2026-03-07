@@ -6,6 +6,7 @@ Uses PathwaySolver for universal, cross-category pathway-aware optimization.
 
 from scraper import GE_CATEGORIES
 from pathways import PathwaySolver, cheapest_completion_hint
+from ge_requirements import GE_REQUIREMENTS
 
 try:
     import pulp
@@ -86,6 +87,14 @@ def _resolve_requirements(courses_taken, remaining_requirements):
     """
     solve_result  = _solver.solve(courses_taken)
     remaining_cats = solve_result.remaining_categories
+
+    # Cross-reference against GE_REQUIREMENTS: if any taken course appears in
+    # the official list for a category, mark that category as completed.
+    ge_req_completed = {
+        cat for cat, codes in GE_REQUIREMENTS.items()
+        if any(c in courses_taken for c in codes)
+    }
+    remaining_cats -= ge_req_completed
 
     # If caller passed explicit overrides (e.g. from PDF), intersect with them
     if remaining_requirements is not None:
