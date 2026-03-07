@@ -251,7 +251,7 @@ def get_seed_courses():
         ("GEOL 101", "Principles of Geology", 3, ["Scientific Principles and Reasoning (Physical Sciences)"]),
         ("PSYCH 111", "Introduction to Psychology", 3, ["Social and Behavioral Sciences"]),
         ("SOC 111", "Introduction to Sociology", 3, ["Social and Behavioral Sciences"]),
-        ("ECON 110", "Economic Principles and Problems", 3, ["Social and Behavioral Sciences", "American Civilization"]),
+        ("ECON 110", "Economic Principles and Problems", 3, ["Social and Behavioral Sciences", "American Heritage"]),
         ("POLI 110", "Introduction to American Government", 3, ["Social and Behavioral Sciences", "American Civilization"]),
         ("HIST 220", "US History to 1877", 3, ["American Civilization"]),
         ("HIST 221", "US History from 1877", 3, ["American Civilization"]),

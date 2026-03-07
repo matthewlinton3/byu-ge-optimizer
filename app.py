@@ -445,8 +445,10 @@ with input_tab1:
 
             else:
                 courses_taken = parse_result.get("courses_taken", set())
-                # Cross-reference taken courses against GE_REQUIREMENTS for authoritative completion
-                completed     = parse_result["completed"] | _completed_from_courses(courses_taken)
+                # Determine completion ONLY from course code cross-reference against GE_REQUIREMENTS.
+                # PDF text pattern matching (find_completed_categories) is intentionally excluded:
+                # it causes false positives when "Completed" appears in requirement section headers.
+                completed     = _completed_from_courses(courses_taken)
                 remaining     = set(GE_CATEGORIES.keys()) - completed
                 st.session_state.pdf_completed   = completed
                 st.session_state.pdf_remaining   = remaining
@@ -660,26 +662,24 @@ if st.session_state.results is not None:
     # ── Debug: GE Completion Source ───────────────────────────────
     with st.expander("🔍 Debug: What Triggered Each GE Completion", expanded=False):
         taken = st.session_state.courses_taken or set()
+        st.caption("Completions use **only** course code cross-reference — PDF text patterns are never used.")
         if already_done:
-            cats_from_courses = _completed_from_courses(taken)
-            st.markdown("Use this to verify the optimizer isn't incorrectly marking categories complete.")
             st.markdown("")
             for cat in sorted(already_done):
                 triggering = sorted(c for c in taken if c in GE_REQUIREMENTS.get(cat, []))
                 if triggering:
-                    st.success(f"**{cat}** — course match: {', '.join(triggering)}")
+                    st.success(f"**{cat}** — {', '.join(triggering)}")
                 else:
-                    st.info(f"**{cat}** — PDF text pattern match (no individual course cross-reference)")
-            if taken - {c for codes in GE_REQUIREMENTS.values() for c in codes}:
-                unmatched = sorted(
-                    c for c in taken
-                    if not any(c in codes for codes in GE_REQUIREMENTS.values())
-                )
-                if unmatched:
-                    st.markdown("**Courses extracted from PDF not in GE_REQUIREMENTS:**")
-                    st.caption(", ".join(unmatched))
+                    st.warning(f"**{cat}** — marked complete but no matching course found (possible stale session state)")
+            unmatched = sorted(
+                c for c in taken
+                if not any(c in codes for codes in GE_REQUIREMENTS.values())
+            )
+            if unmatched:
+                st.markdown("**Courses from PDF not mapped to any GE category:**")
+                st.caption(", ".join(unmatched))
         else:
-            st.caption("No data yet — upload a PDF and run the optimizer first.")
+            st.caption("No completions detected yet — upload a PDF and run the optimizer.")
 
     # ── Pathway partial-completion notice ────────────────────────
     pathway_state = st.session_state.get("pathway_state")
