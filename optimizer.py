@@ -1,11 +1,11 @@
 """
 BYU GE Optimizer
 Uses greedy set-cover + PuLP ILP to find the fewest courses that fulfill all GE requirements.
-Supports flexible/alternative pathways and partial completion detection.
+Uses PathwaySolver for universal, cross-category pathway-aware optimization.
 """
 
 from scraper import GE_CATEGORIES
-from pathways import get_remaining_requirements, cheapest_completion_hint
+from pathways import PathwaySolver, cheapest_completion_hint
 
 try:
     import pulp
@@ -14,18 +14,19 @@ except ImportError:
     HAS_PULP = False
     print("[warn] PuLP not installed. Falling back to greedy algorithm.")
 
+_solver = PathwaySolver()
+
 
 def greedy_set_cover(courses, requirements):
     """
     Greedy set cover: repeatedly pick the course that covers the most
-    uncovered requirements, tiebreak by highest professor rating.
+    uncovered requirements. Tiebreak: highest RMP rating, then fewest credits.
     """
     uncovered = set(requirements.keys())
-    selected = []
+    selected  = []
     remaining = list(courses)
 
     while uncovered and remaining:
-        # Score each course by how many uncovered categories it hits
         best = max(
             remaining,
             key=lambda c: (
@@ -34,11 +35,9 @@ def greedy_set_cover(courses, requirements):
                 -c.get("credit_hours", 3),
             )
         )
-
         newly_covered = set(best["ge_categories"]) & uncovered
         if not newly_covered:
-            break  # No more coverage possible
-
+            break
         selected.append(best)
         uncovered -= newly_covered
         remaining.remove(best)
@@ -49,82 +48,107 @@ def greedy_set_cover(courses, requirements):
 def ilp_set_cover(courses, requirements):
     """
     Integer Linear Programming set cover using PuLP.
-    Minimizes total courses while covering all GE categories.
+    Minimizes total courses while covering all remaining GE categories.
     """
     prob = pulp.LpProblem("BYU_GE_Optimizer", pulp.LpMinimize)
 
-    # Binary variable for each course: 1 = take it, 0 = don't
     x = {
-        c["course_code"]: pulp.LpVariable(f"x_{c['course_code'].replace(' ', '_')}", cat="Binary")
+        c["course_code"]: pulp.LpVariable(
+            f"x_{c['course_code'].replace(' ', '_').replace('/', '_')}",
+            cat="Binary"
+        )
         for c in courses
     }
 
-    # Objective: minimize total courses taken (weighted by fewer categories = less value)
+    # Objective: minimize number of courses selected
     prob += pulp.lpSum(x[c["course_code"]] for c in courses)
 
-    # Constraints: each GE category must be covered by at least one selected course
+    # Constraint: each remaining GE category must be covered by ≥1 selected course
     for category in requirements:
-        covering_courses = [c for c in courses if category in c["ge_categories"]]
-        if covering_courses:
-            prob += pulp.lpSum(x[c["course_code"]] for c in covering_courses) >= 1
+        covering = [c for c in courses if category in c["ge_categories"]]
+        if covering:
+            prob += pulp.lpSum(x[c["course_code"]] for c in covering) >= 1
 
     prob.solve(pulp.PULP_CBC_CMD(msg=0))
 
-    selected = [c for c in courses if pulp.value(x[c["course_code"]]) == 1]
-
-    # Find uncovered (categories with no courses offering them)
-    covered = set()
-    for c in selected:
-        covered.update(c["ge_categories"])
+    selected  = [c for c in courses if pulp.value(x[c["course_code"]]) == 1]
+    covered   = set(cat for c in selected for cat in c["ge_categories"])
     uncovered = set(requirements.keys()) - covered
 
     return selected, uncovered
+
+
+def _resolve_requirements(courses_taken, remaining_requirements):
+    """
+    Use PathwaySolver to determine which categories still need work,
+    then return (requirements_dict, partial_hints) where partial_hints maps
+    category → {course_codes that cheapest-complete it}.
+    """
+    solve_result  = _solver.solve(courses_taken)
+    remaining_cats = solve_result.remaining_categories
+
+    # If caller passed explicit overrides (e.g. from PDF), intersect with them
+    if remaining_requirements is not None:
+        if isinstance(remaining_requirements, set):
+            remaining_cats &= remaining_requirements
+        elif isinstance(remaining_requirements, dict):
+            remaining_cats &= set(remaining_requirements.keys())
+
+    requirements  = {k: v for k, v in GE_CATEGORIES.items() if k in remaining_cats}
+
+    # Build partial hints: for categories already started, which courses finish cheapest?
+    partial_hints = {}
+    for cat, pathway_result in solve_result.partial.items():
+        if cat not in remaining_cats:
+            continue
+        hints = cheapest_completion_hint(cat, courses_taken, [])  # courses list not needed here
+        # We use the pathway pool directly since we have it
+        pool  = set(pathway_result.pathway.course_pool)
+        taken = set(pathway_result.already_taken)
+        partial_hints[cat] = pool - taken
+
+    return requirements, partial_hints
 
 
 def optimize(courses, use_ilp=True, remaining_requirements=None, courses_taken=None):
     """
     Run optimization. Returns (selected_courses, uncovered_categories).
 
-    Args:
-        courses: list of course dicts from the scraper
-        use_ilp: use PuLP ILP solver if True, greedy if False
-        remaining_requirements: optional set/dict of category names to optimize for.
-            If None, optimizes for ALL GE categories.
-        courses_taken: optional set of course codes the student has already completed.
-            Used for pathway-aware optimization — e.g. if ECON 110 is taken,
-            only ONE more AmCiv course is needed instead of AMER H 100.
+    Parameters
+    ----------
+    courses               : list of course dicts from the scraper
+    use_ilp               : use PuLP ILP solver if True, greedy if False
+    remaining_requirements: optional set/dict of category names — if supplied,
+                            only these categories are optimized for (e.g. from PDF)
+    courses_taken         : optional set of course codes already completed.
+                            Activates PathwaySolver for universal pathway-aware
+                            optimization across ALL 13 GE requirements.
     """
-    # ── Resolve requirements ──────────────────────────────────────
-    if remaining_requirements is None and courses_taken:
-        # Use pathway-aware engine to figure out what's still needed
-        pathway_state = get_remaining_requirements(courses_taken)
-        remaining_cats = set(pathway_state["partial"].keys()) | set(pathway_state["not_started"])
-        requirements   = {k: v for k, v in GE_CATEGORIES.items() if k in remaining_cats}
 
-        # For partial requirements, boost the specific courses that finish them cheapest
-        _partial_hints = {}
-        for cat, state in pathway_state["partial"].items():
-            hints = cheapest_completion_hint(cat, courses_taken, courses)
-            if hints:
-                _partial_hints[cat] = {c["course_code"] for c in hints}
-
-    elif remaining_requirements is None:
-        requirements   = GE_CATEGORIES
-        _partial_hints = {}
-    elif isinstance(remaining_requirements, set):
-        requirements   = {k: v for k, v in GE_CATEGORIES.items() if k in remaining_requirements}
-        _partial_hints = {}
+    # ── 1. Resolve which categories still need work ───────────────
+    if courses_taken:
+        requirements, partial_hints = _resolve_requirements(
+            set(courses_taken), remaining_requirements
+        )
+    elif remaining_requirements is not None:
+        partial_hints = {}
+        if isinstance(remaining_requirements, set):
+            requirements = {k: v for k, v in GE_CATEGORIES.items()
+                            if k in remaining_requirements}
+        elif isinstance(remaining_requirements, dict):
+            requirements = remaining_requirements
+        else:
+            requirements = GE_CATEGORIES
     else:
-        requirements   = remaining_requirements
-        _partial_hints = {}
+        requirements  = GE_CATEGORIES
+        partial_hints = {}
 
     if not requirements:
         return [], set()
 
-    # ── Strip already-completed categories from each course's tag list ──
-    # This prevents the ILP from choosing AMER H 100 just because it also tags
-    # "American Civilization" when AmCiv is already done — making it falsely
-    # look like a better double-dipper than AMER H 200.
+    # ── 2. Prune course catalog to remaining categories only ──────
+    # Strip already-done categories from each course's tag list so the ILP
+    # doesn't over-value a double-dipper whose second category is already done.
     remaining_cat_set = set(requirements.keys())
     ge_courses = []
     for c in courses:
@@ -137,30 +161,41 @@ def optimize(courses, use_ilp=True, remaining_requirements=None, courses_taken=N
     if not ge_courses:
         return [], set(requirements.keys())
 
-    # ── Boost courses that complete partial pathways ───────────────
-    # Give these courses a synthetic head-start in the ILP/greedy by
-    # adding a virtual extra GE category "__partial_boost" so they rank higher.
-    if _partial_hints:
+    # ── 3. Inject pathway-completion bonus tags ───────────────────
+    # For partially-completed pathways, tag the qualifying completion courses
+    # with a synthetic "__pathway_<cat>" category. The ILP/greedy will then
+    # naturally prefer these over unrelated alternatives — without distorting
+    # the actual GE coverage constraints.
+    if partial_hints:
+        boosted = []
         for course in ge_courses:
-            code = course["course_code"]
-            for cat, hint_codes in _partial_hints.items():
-                if code in hint_codes and "__partial_boost" not in course["ge_categories"]:
-                    course = dict(course)  # don't mutate original
-                    course["ge_categories"] = course["ge_categories"] + ["__partial_boost"]
-                    break
+            code   = course["course_code"]
+            extras = []
+            for cat, hint_codes in partial_hints.items():
+                if code in hint_codes:
+                    extras.append(f"__pathway_{cat.replace(' ', '_')}")
+            if extras:
+                course = dict(course)
+                course["ge_categories"] = course["ge_categories"] + extras
+            boosted.append(course)
+        ge_courses = boosted
 
+    # ── 4. Solve ──────────────────────────────────────────────────
     if use_ilp and HAS_PULP:
-        print("[optimizer] Running pathway-aware ILP optimization (PuLP)...")
+        print("[optimizer] Running PathwaySolver-aware ILP (PuLP)...")
         selected, uncovered = ilp_set_cover(ge_courses, requirements)
     else:
-        print("[optimizer] Running pathway-aware greedy set-cover optimization...")
+        print("[optimizer] Running PathwaySolver-aware greedy set-cover...")
         selected, uncovered = greedy_set_cover(ge_courses, requirements)
 
-    # Remove the synthetic boost tag before returning
+    # ── 5. Clean up synthetic tags before returning ───────────────
     for c in selected:
-        c["ge_categories"] = [cat for cat in c.get("ge_categories", []) if cat != "__partial_boost"]
+        c["ge_categories"] = [
+            cat for cat in c.get("ge_categories", [])
+            if not cat.startswith("__")
+        ]
 
-    # Sort: most GE categories covered first, then by RMP rating
+    # ── 6. Sort: most categories covered → highest RMP rating ─────
     selected.sort(key=lambda c: (
         -len(c.get("ge_categories", [])),
         -c.get("rmp_rating", 0),
