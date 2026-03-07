@@ -230,6 +230,20 @@ with st.sidebar:
     refresh  = st.toggle("Refresh Data", value=False,
                          help="Re-scrape BYU catalog. Slow — only use if data seems outdated.")
     st.divider()
+    sort_priority = st.radio(
+        "🏆 Sort Priority",
+        options=["Balanced", "Fewest Classes", "Best Professor", "Easiest Classes"],
+        index=0,
+        help=(
+            "**Balanced** — Prioritise double-dippers first, then highest RMP rating, "
+            "then lowest difficulty.\n\n"
+            "**Fewest Classes** — Maximise GE categories covered per course.\n\n"
+            "**Best Professor** — Sort by highest RMP overall rating.\n\n"
+            "**Easiest Classes** — Sort by lowest RMP difficulty score "
+            "(courses with no rating data appear last)."
+        ),
+    )
+    st.divider()
     st.caption("Built with Python · PuLP · Streamlit")
     st.caption("Data: BYU Catalog · RateMyProfessors")
 
@@ -278,9 +292,26 @@ if run_btn:
 # STEP 3 — Results
 # ════════════════════════════════════════════════════════════════
 if st.session_state.results is not None:
-    selected     = st.session_state.results
+    selected     = list(st.session_state.results)   # copy so we can re-sort for display
     uncovered    = st.session_state.uncovered
     already_done = st.session_state.pdf_completed or set()
+
+    # ── Apply sort priority (dynamically, no need to re-run optimizer) ────────
+    if sort_priority == "Best Professor":
+        selected.sort(key=lambda c: -(c.get("rmp_rating") or 0))
+    elif sort_priority == "Easiest Classes":
+        selected.sort(key=lambda c: (
+            (c.get("rmp_difficulty") or 0) == 0,   # push no-data courses to end
+            c.get("rmp_difficulty") or 99,
+        ))
+    elif sort_priority == "Fewest Classes":
+        selected.sort(key=lambda c: -len(c.get("ge_categories", [])))
+    else:  # Balanced (default)
+        selected.sort(key=lambda c: (
+            -len(c.get("ge_categories", [])),       # most categories first
+            -(c.get("rmp_rating") or 0),            # then highest RMP rating
+            c.get("rmp_difficulty") or 99,          # then lowest difficulty
+        ))
 
     all_cats             = set(GE_CATEGORIES.keys())
     covered_by_optimizer = all_cats - uncovered - already_done
@@ -299,9 +330,10 @@ if st.session_state.results is not None:
                 "cheapest pathway to complete each one."
             )
             for cat, state in pathway_state["partial"].items():
-                taken_str = ", ".join(state["already_taken"]) or "none"
-                needed    = state["courses_remaining"]
-                pathway   = state["pathway"]["description"]
+                # state is a PathwayResult dataclass — use attribute access
+                taken_str = ", ".join(state.already_taken) or "none"
+                needed    = state.courses_remaining
+                pathway   = state.pathway.description
                 st.markdown(
                     f"**{cat}** — You've taken `{taken_str}`. "
                     f"Pathway: _{pathway}_. **{needed} more course(s) needed.**"
@@ -322,49 +354,77 @@ if st.session_state.results is not None:
     # ── Tab 1: Course Table ───────────────────────────────────────
     with tab1:
         st.subheader("Recommended Courses")
-        if already_done:
-            st.caption(
-                f"Showing only courses for your **{len(st.session_state.pdf_remaining or all_cats)}** "
-                f"remaining GE categories — {len(already_done)} already-completed categories excluded."
-            )
+        col_hdr, col_sort_label = st.columns([3, 1])
+        with col_hdr:
+            if already_done:
+                st.caption(
+                    f"Showing only courses for your **{len(st.session_state.pdf_remaining or all_cats)}** "
+                    f"remaining GE categories — {len(already_done)} already-completed categories excluded."
+                )
+        with col_sort_label:
+            st.caption(f"🏆 Sorted by: **{sort_priority}**")
 
         rows = []
         for c in selected:
             profs = c.get("professors", [])
             top   = profs[0] if profs else None
             cats  = c.get("ge_categories", [])
+
+            has_rating     = top is not None and (top.get("rating") or 0) > 0
+            has_difficulty = top is not None and (top.get("difficulty") or 0) > 0
+            has_wta        = top is not None and (top.get("would_take_again") or -1) >= 0
+
             rows.append({
                 "Course":           c["course_code"],
                 "Name":             c["course_name"],
                 "Credits":          c.get("credit_hours", 3),
                 "GE Categories":    ", ".join(cats),
                 "# Categories":     len(cats),
-                "Top Professor":    top["name"] if top else "N/A",
-                "Rating":           round(top["rating"], 1)          if top and top.get("rating")                  else None,
-                "Difficulty":       round(top["difficulty"], 1)      if top and top.get("difficulty")              else None,
-                "Would Take Again": f"{top['would_take_again']:.0f}%" if top and top.get("would_take_again",-1)>=0 else "N/A",
+                "Top Professor":    top["name"] if top else "No ratings yet",
+                "Rating (/5)":      round(top["rating"], 1)          if has_rating     else None,
+                "Difficulty (/5)":  round(top["difficulty"], 1)      if has_difficulty else None,
+                "Would Take Again": f"{top['would_take_again']:.0f}%" if has_wta        else "—",
             })
 
         df = pd.DataFrame(rows)
 
         def color_rating(val):
-            if val is None: return "color: gray"
-            if val >= 4.0:  return "color: green; font-weight: bold"
-            if val >= 3.0:  return "color: orange"
+            if pd.isna(val):  return "color: gray; font-style: italic"
+            if val >= 4.0:    return "color: green; font-weight: bold"
+            if val >= 3.0:    return "color: orange"
             return "color: red"
 
         def color_difficulty(val):
-            if val is None: return "color: gray"
-            if val <= 2.5:  return "color: green"
-            if val <= 3.5:  return "color: orange"
+            if pd.isna(val):  return "color: gray; font-style: italic"
+            if val <= 2.5:    return "color: green"
+            if val <= 3.5:    return "color: orange"
             return "color: red; font-weight: bold"
 
-        styled = (df.style
-                    .applymap(color_rating,     subset=["Rating"])
-                    .applymap(color_difficulty, subset=["Difficulty"])
-                    .highlight_max(subset=["# Categories"], color="#fff3cd"))
+        styled = (
+            df.style
+            .format({
+                "Rating (/5)":     lambda v: f"{v:.1f}" if v == v else "No ratings yet",
+                "Difficulty (/5)": lambda v: f"{v:.1f}" if v == v else "No ratings yet",
+            })
+            .applymap(color_rating,     subset=["Rating (/5)"])
+            .applymap(color_difficulty, subset=["Difficulty (/5)"])
+            .highlight_max(subset=["# Categories"], color="#fff3cd")
+        )
 
         st.dataframe(styled, use_container_width=True, hide_index=True)
+
+        # ── Legend ────────────────────────────────────────────────
+        with st.expander("ℹ️ Column Guide", expanded=False):
+            st.markdown("""
+| Column | Meaning |
+|--------|---------|
+| **Rating (/5)** | RMP overall professor rating (5 = best). Green ≥ 4.0, orange ≥ 3.0, red < 3.0 |
+| **Difficulty (/5)** | RMP difficulty score (lower = easier). Green ≤ 2.5, orange ≤ 3.5, red > 3.5 |
+| **Would Take Again** | % of students who would re-take this professor's class |
+| **# Categories** | How many GE requirements this course covers (highlighted = most) |
+| **No ratings yet** | No RMP data found for professors in this department |
+""")
+
         st.download_button(
             "⬇️ Download as CSV", data=df.to_csv(index=False),
             file_name="byu_ge_optimizer_results.csv", mime="text/csv"
