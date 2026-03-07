@@ -349,14 +349,15 @@ with input_tab1:
             f'<span class="byu-pill byu-pill-done">✓ {cat}</span>'
             for cat in sorted(st.session_state.pdf_completed)
         )
-        st.markdown(f'<div class="byu-card">{done_html or "<span style=\"color:#888;\">None</span>"}</div>', unsafe_allow_html=True)
+        fallback = '<span style="color:#888;">None</span>'
+        st.markdown(f'<div class="byu-card">{done_html or fallback}</div>', unsafe_allow_html=True)
         st.markdown('<p class="byu-progress-title">Remaining</p>', unsafe_allow_html=True)
         rem = st.session_state.pdf_remaining or set()
         rem_html = "".join(
             f'<span class="byu-pill byu-pill-remaining">{cat}</span>'
             for cat in sorted(rem)
         )
-        st.markdown(f'<div class="byu-card">{rem_html or "<span style=\"color:#888;\">None</span>"}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="byu-card">{rem_html or fallback}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 with input_tab2:
