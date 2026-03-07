@@ -79,15 +79,36 @@ def ilp_set_cover(courses, requirements):
     return selected, uncovered
 
 
-def optimize(courses, use_ilp=True):
+def optimize(courses, use_ilp=True, remaining_requirements=None):
     """
     Run optimization. Returns (selected_courses, uncovered_categories).
-    Filters to only courses that fulfill at least one GE requirement.
-    """
-    requirements = GE_CATEGORIES
 
-    # Only consider courses that fulfill at least one GE category
-    ge_courses = [c for c in courses if c.get("ge_categories")]
+    Args:
+        courses: list of course dicts from the scraper
+        use_ilp: use PuLP ILP solver if True, greedy if False
+        remaining_requirements: optional set/dict of category names to optimize for.
+            If None, optimizes for ALL GE categories.
+            Pass a subset to only find courses for incomplete requirements
+            (e.g. after parsing a degree audit PDF).
+    """
+    if remaining_requirements is None:
+        requirements = GE_CATEGORIES
+    elif isinstance(remaining_requirements, set):
+        # Convert set of category names to dict matching GE_CATEGORIES format
+        requirements = {k: v for k, v in GE_CATEGORIES.items() if k in remaining_requirements}
+    else:
+        requirements = remaining_requirements
+
+    if not requirements:
+        # Everything is already done!
+        return [], set()
+
+    # Only consider courses that fulfill at least one REMAINING GE category
+    ge_courses = [
+        c for c in courses
+        if c.get("ge_categories") and
+        any(cat in requirements for cat in c["ge_categories"])
+    ]
 
     if not ge_courses:
         return [], set(requirements.keys())

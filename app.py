@@ -7,6 +7,7 @@ import pandas as pd
 from scraper import scrape_catalog_for_ge, GE_CATEGORIES, init_db
 from optimizer import optimize
 from rmp import enrich_with_rmp
+from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 
 # ── Page config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -18,101 +19,208 @@ st.set_page_config(
 # ── Custom CSS ───────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .main-header {
-        text-align: center;
-        padding: 1rem 0 0.5rem 0;
-    }
-    .metric-card {
-        background: #f0f4ff;
-        border-radius: 10px;
-        padding: 1rem;
-        text-align: center;
-    }
-    .double-dip-badge {
-        background: #ffd700;
-        color: #333;
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 0.75rem;
-        font-weight: bold;
-    }
+    .main-header { text-align: center; padding: 1rem 0 0.5rem 0; }
     .covered-pill {
-        background: #d4edda;
-        color: #155724;
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 0.8rem;
-        margin: 2px;
-        display: inline-block;
+        background: #d4edda; color: #155724;
+        border-radius: 12px; padding: 2px 10px;
+        font-size: 0.82rem; margin: 2px; display: inline-block;
     }
     .uncovered-pill {
-        background: #f8d7da;
-        color: #721c24;
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 0.8rem;
-        margin: 2px;
-        display: inline-block;
+        background: #f8d7da; color: #721c24;
+        border-radius: 12px; padding: 2px 10px;
+        font-size: 0.82rem; margin: 2px; display: inline-block;
     }
-    div[data-testid="stMetricValue"] {
-        font-size: 2rem;
+    .already-done-pill {
+        background: #cce5ff; color: #004085;
+        border-radius: 12px; padding: 2px 10px;
+        font-size: 0.82rem; margin: 2px; display: inline-block;
     }
+    div[data-testid="stMetricValue"] { font-size: 2rem; }
 </style>
 """, unsafe_allow_html=True)
-
 
 # ── Header ───────────────────────────────────────────────────────
 st.markdown("""
 <div class="main-header">
     <h1>🎓 BYU GE Optimizer</h1>
     <p style="color: #666; font-size: 1.1rem;">
-        Find the <strong>fewest courses</strong> that fulfill all your GE requirements —
-        sorted by RateMyProfessors ratings.
+        Upload your MyMap degree audit to skip completed GEs —
+        then find the <strong>fewest remaining courses</strong> sorted by RMP ratings.
     </p>
 </div>
 """, unsafe_allow_html=True)
+st.divider()
+
+# ── Session state ─────────────────────────────────────────────────
+for key, default in [
+    ("results", None),
+    ("uncovered", set()),
+    ("pdf_completed", None),
+    ("pdf_remaining", None),
+    ("pdf_parse_error", None),
+    ("pdf_confidence", None),
+    ("manual_override", False),
+    ("manual_completed", set()),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+
+# ════════════════════════════════════════════════════════════════
+# STEP 1 — Degree Audit Upload
+# ════════════════════════════════════════════════════════════════
+st.markdown("## Step 1 — Upload Your Degree Audit (Optional)")
+st.caption("Upload your BYU MyMap PDF to automatically skip GE requirements you've already completed.")
+
+upload_col, info_col = st.columns([2, 1])
+
+with upload_col:
+    uploaded_pdf = st.file_uploader(
+        "Upload BYU MyMap Degree Audit PDF",
+        type=["pdf"],
+        help="Download from MyMap → Degree Audit → Export PDF"
+    )
+
+with info_col:
+    st.info(
+        "**How to export from MyMap:**\n"
+        "1. Go to [mymap.byu.edu](https://mymap.byu.edu)\n"
+        "2. Open your Degree Audit\n"
+        "3. Print → Save as PDF\n"
+        "4. Upload here"
+    )
+
+# ── Parse uploaded PDF ───────────────────────────────────────────
+if uploaded_pdf is not None:
+    if not HAS_PDFPLUMBER:
+        st.error("⚠️ pdfplumber is not installed on this server. Please use manual selection below.")
+        st.session_state.manual_override = True
+    else:
+        with st.spinner("📄 Parsing your degree audit PDF..."):
+            parse_result = parse_degree_audit(uploaded_pdf)
+
+        if parse_result["error"]:
+            st.warning(f"⚠️ Could not fully parse PDF: {parse_result['error']}")
+            st.session_state.pdf_parse_error = parse_result["error"]
+            st.session_state.manual_override = True
+
+        elif parse_result["parse_confidence"] == "low":
+            st.warning(
+                "⚠️ Your PDF was read but doesn't look like a standard BYU MyMap degree audit "
+                "(low confidence). Please verify the results below or use manual selection."
+            )
+            st.session_state.pdf_completed   = parse_result["completed"]
+            st.session_state.pdf_remaining   = parse_result["remaining"]
+            st.session_state.pdf_confidence  = parse_result["parse_confidence"]
+            st.session_state.manual_override = True
+
+        else:
+            st.session_state.pdf_completed   = parse_result["completed"]
+            st.session_state.pdf_remaining   = parse_result["remaining"]
+            st.session_state.pdf_confidence  = parse_result["parse_confidence"]
+            st.session_state.manual_override = False
+            st.success(
+                f"✅ PDF parsed successfully "
+                f"({'high' if parse_result['parse_confidence'] == 'high' else 'medium'} confidence). "
+                f"Found **{len(parse_result['completed'])}** completed GE categories."
+            )
+
+# ── PDF results summary ──────────────────────────────────────────
+if st.session_state.pdf_completed is not None and not st.session_state.manual_override:
+    completed_from_pdf = st.session_state.pdf_completed
+    remaining_from_pdf = st.session_state.pdf_remaining
+
+    st.markdown("### 📋 Degree Audit Summary")
+    sum_col1, sum_col2 = st.columns(2)
+
+    with sum_col1:
+        st.markdown("**✅ Already Completed:**")
+        if completed_from_pdf:
+            for cat in sorted(completed_from_pdf):
+                st.markdown(f'<span class="already-done-pill">✓ {cat}</span>', unsafe_allow_html=True)
+        else:
+            st.caption("None detected as complete")
+
+    with sum_col2:
+        st.markdown("**📌 Still Needed:**")
+        if remaining_from_pdf:
+            for cat in sorted(remaining_from_pdf):
+                st.markdown(f'<span class="uncovered-pill">→ {cat}</span>', unsafe_allow_html=True)
+        else:
+            st.success("🎉 All GE requirements appear to be complete!")
+
+    st.divider()
+
+# ── Manual fallback / override ────────────────────────────────────
+show_manual = (
+    st.session_state.manual_override or
+    uploaded_pdf is None or
+    st.checkbox("✏️ Manually adjust detected completions", value=False)
+)
+
+if show_manual:
+    if st.session_state.manual_override and uploaded_pdf is not None:
+        st.markdown("### ✏️ Manual GE Selection (fallback)")
+        st.caption("The PDF could not be reliably parsed. Please check off the GE categories you've already completed:")
+    else:
+        st.markdown("### ✏️ Manually Select Completed GEs")
+        st.caption("Check any GE requirements you've already completed:")
+
+    all_cats       = sorted(GE_CATEGORIES.keys())
+    default_checked = sorted(st.session_state.pdf_completed or st.session_state.manual_completed)
+
+    manual_cols    = st.columns(2)
+    manual_selected = set()
+    for i, cat in enumerate(all_cats):
+        col     = manual_cols[i % 2]
+        already = cat in default_checked
+        checked = col.checkbox(cat, value=already, key=f"manual_{cat}")
+        if checked:
+            manual_selected.add(cat)
+
+    st.session_state.manual_completed = manual_selected
+    st.session_state.pdf_completed    = manual_selected
+    st.session_state.pdf_remaining    = set(GE_CATEGORIES.keys()) - manual_selected
+
+    remaining_count = len(st.session_state.pdf_remaining)
+    st.info(f"**{len(manual_selected)}** categories marked complete → optimizing for **{remaining_count}** remaining.")
 
 st.divider()
 
-# ── Sidebar controls ─────────────────────────────────────────────
+
+# ════════════════════════════════════════════════════════════════
+# STEP 2 — Optimizer Options + Run
+# ════════════════════════════════════════════════════════════════
+st.markdown("## Step 2 — Run the Optimizer")
+
 with st.sidebar:
-    st.image("https://www.byu.edu/static/images/BYU_monogram.svg", width=80)
     st.title("⚙️ Options")
-
-    use_ilp = st.toggle("Use ILP Optimization", value=True,
-                        help="Integer Linear Programming finds the true minimum. Greedy is faster but may not be optimal.")
+    use_ilp  = st.toggle("Use ILP Optimization", value=True,
+                         help="Finds the true minimum number of courses. Greedy is faster but not always optimal.")
     skip_rmp = st.toggle("Skip RMP Ratings", value=False,
-                         help="Skip RateMyProfessors lookup (faster, but no professor ratings)")
-    refresh = st.toggle("Refresh Data", value=False,
-                        help="Re-scrape BYU catalog and RMP. Slow — only use if data seems outdated.")
-
-    st.divider()
-    run_btn = st.button("🚀 Run Optimizer", type="primary", use_container_width=True)
-
+                         help="Skip RateMyProfessors lookup (faster, but no professor data)")
+    refresh  = st.toggle("Refresh Data", value=False,
+                         help="Re-scrape BYU catalog. Slow — only use if data seems outdated.")
     st.divider()
     st.caption("Built with Python · PuLP · Streamlit")
     st.caption("Data: BYU Catalog · RateMyProfessors")
 
-
-# ── Session state ─────────────────────────────────────────────────
-if "results" not in st.session_state:
-    st.session_state.results = None
-if "uncovered" not in st.session_state:
-    st.session_state.uncovered = set()
+run_btn = st.button("🚀 Run Optimizer", type="primary")
 
 
-# ── Run optimizer ────────────────────────────────────────────────
-def run_optimizer(use_ilp, skip_rmp, refresh):
+# ── Run optimizer ─────────────────────────────────────────────────
+def run_optimizer(use_ilp, skip_rmp, refresh, remaining_requirements):
     init_db()
-
     with st.status("⚙️ Running optimizer...", expanded=True) as status:
         st.write("📚 Loading BYU GE course data...")
         courses = scrape_catalog_for_ge(refresh=refresh)
         st.write(f"✅ Loaded {len(courses)} GE courses")
 
-        st.write("🧮 Optimizing course selection...")
-        selected, uncovered = optimize(courses, use_ilp=use_ilp)
-        st.write(f"✅ Selected {len(selected)} courses covering {len(GE_CATEGORIES) - len(uncovered)}/{len(GE_CATEGORIES)} GE categories")
+        target_count = len(remaining_requirements) if remaining_requirements else len(GE_CATEGORIES)
+        st.write(f"🧮 Optimizing for {target_count} remaining GE categories...")
+        selected, uncovered = optimize(courses, use_ilp=use_ilp,
+                                       remaining_requirements=remaining_requirements)
+        st.write(f"✅ Selected {len(selected)} courses")
 
         if not skip_rmp:
             st.write("⭐ Fetching RateMyProfessors ratings...")
@@ -125,154 +233,159 @@ def run_optimizer(use_ilp, skip_rmp, refresh):
 
 
 if run_btn:
-    selected, uncovered = run_optimizer(use_ilp, skip_rmp, refresh)
-    st.session_state.results = selected
+    remaining = st.session_state.pdf_remaining
+    selected, uncovered = run_optimizer(use_ilp, skip_rmp, refresh, remaining)
+    st.session_state.results  = selected
     st.session_state.uncovered = uncovered
 
 
-# ── Results ───────────────────────────────────────────────────────
-if st.session_state.results:
-    selected = st.session_state.results
-    uncovered = st.session_state.uncovered
-    covered = set(GE_CATEGORIES.keys()) - uncovered
-    total_credits = sum(c.get("credit_hours", 3) for c in selected)
-    double_dippers = [c for c in selected if len(c.get("ge_categories", [])) > 1]
+# ════════════════════════════════════════════════════════════════
+# STEP 3 — Results
+# ════════════════════════════════════════════════════════════════
+if st.session_state.results is not None:
+    selected     = st.session_state.results
+    uncovered    = st.session_state.uncovered
+    already_done = st.session_state.pdf_completed or set()
 
-    # ── Metrics row ──────────────────────────────────────────────
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("📚 Courses Needed", len(selected))
-    col2.metric("🎯 Credits", f"~{total_credits}")
-    col3.metric("✅ GE Categories", f"{len(covered)}/{len(GE_CATEGORIES)}")
-    col4.metric("⚡ Double-Dippers", len(double_dippers))
+    all_cats             = set(GE_CATEGORIES.keys())
+    covered_by_optimizer = all_cats - uncovered - already_done
+    total_credits        = sum(c.get("credit_hours", 3) for c in selected)
+    double_dippers       = [c for c in selected if len(c.get("ge_categories", [])) > 1]
+
+    st.divider()
+    st.markdown("## Results")
+
+    # ── Metrics ──────────────────────────────────────────────────
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("📚 Courses to Take",    len(selected))
+    m2.metric("🎯 Estimated Credits",  f"~{total_credits}")
+    m3.metric("✅ Already Done",        len(already_done))
+    m4.metric("📌 Categories Covered", len(covered_by_optimizer))
+    m5.metric("⚡ Double-Dippers",     len(double_dippers))
 
     st.divider()
 
-    # ── Tabs ─────────────────────────────────────────────────────
-    tab1, tab2, tab3 = st.tabs(["📋 Recommended Courses", "📊 GE Coverage", "⚡ Double-Dippers"])
+    tab1, tab2, tab3 = st.tabs(["📋 Recommended Courses", "📊 Full GE Map", "⚡ Double-Dippers"])
 
+    # ── Tab 1: Course Table ───────────────────────────────────────
     with tab1:
-        st.subheader("Recommended Course List")
-        st.caption("Sorted by: most GE categories fulfilled → highest professor rating")
+        st.subheader("Recommended Courses")
+        if already_done:
+            st.caption(
+                f"Showing only courses for your **{len(st.session_state.pdf_remaining or all_cats)}** "
+                f"remaining GE categories — {len(already_done)} already-completed categories excluded."
+            )
 
-        # Build DataFrame
         rows = []
         for c in selected:
             profs = c.get("professors", [])
-            top = profs[0] if profs else None
-            cats = c.get("ge_categories", [])
-
+            top   = profs[0] if profs else None
+            cats  = c.get("ge_categories", [])
             rows.append({
-                "Course": c["course_code"],
-                "Name": c["course_name"],
-                "Credits": c.get("credit_hours", 3),
-                "GE Categories": ", ".join(cats),
-                "# Categories": len(cats),
-                "Top Professor": top["name"] if top else "N/A",
-                "Rating": round(top["rating"], 1) if top and top.get("rating") else None,
-                "Difficulty": round(top["difficulty"], 1) if top and top.get("difficulty") else None,
-                "Would Take Again": f"{top['would_take_again']:.0f}%" if top and top.get("would_take_again", -1) >= 0 else "N/A",
+                "Course":           c["course_code"],
+                "Name":             c["course_name"],
+                "Credits":          c.get("credit_hours", 3),
+                "GE Categories":    ", ".join(cats),
+                "# Categories":     len(cats),
+                "Top Professor":    top["name"] if top else "N/A",
+                "Rating":           round(top["rating"], 1)          if top and top.get("rating")                  else None,
+                "Difficulty":       round(top["difficulty"], 1)      if top and top.get("difficulty")              else None,
+                "Would Take Again": f"{top['would_take_again']:.0f}%" if top and top.get("would_take_again",-1)>=0 else "N/A",
             })
 
         df = pd.DataFrame(rows)
 
-        # Color rating column
         def color_rating(val):
-            if val is None:
-                return "color: gray"
-            if val >= 4.0:
-                return "color: green; font-weight: bold"
-            elif val >= 3.0:
-                return "color: orange"
+            if val is None: return "color: gray"
+            if val >= 4.0:  return "color: green; font-weight: bold"
+            if val >= 3.0:  return "color: orange"
             return "color: red"
 
         def color_difficulty(val):
-            if val is None:
-                return "color: gray"
-            if val <= 2.5:
-                return "color: green"
-            elif val <= 3.5:
-                return "color: orange"
+            if val is None: return "color: gray"
+            if val <= 2.5:  return "color: green"
+            if val <= 3.5:  return "color: orange"
             return "color: red; font-weight: bold"
 
-        styled = df.style.applymap(color_rating, subset=["Rating"]) \
-                         .applymap(color_difficulty, subset=["Difficulty"]) \
-                         .highlight_max(subset=["# Categories"], color="#fff3cd")
+        styled = (df.style
+                    .applymap(color_rating,     subset=["Rating"])
+                    .applymap(color_difficulty, subset=["Difficulty"])
+                    .highlight_max(subset=["# Categories"], color="#fff3cd"))
 
         st.dataframe(styled, use_container_width=True, hide_index=True)
-
-        # Download button
-        csv = df.to_csv(index=False)
         st.download_button(
-            "⬇️ Download as CSV",
-            data=csv,
-            file_name="byu_ge_optimizer_results.csv",
-            mime="text/csv",
+            "⬇️ Download as CSV", data=df.to_csv(index=False),
+            file_name="byu_ge_optimizer_results.csv", mime="text/csv"
         )
 
+    # ── Tab 2: Full GE Map ────────────────────────────────────────
     with tab2:
-        st.subheader("GE Requirement Coverage")
-
-        col_a, col_b = st.columns(2)
+        st.subheader("Full GE Requirement Map")
+        col_a, col_b, col_c = st.columns(3)
 
         with col_a:
-            st.markdown("### ✅ Covered")
-            for cat in sorted(covered):
-                courses_for_cat = [c for c in selected if cat in c.get("ge_categories", [])]
-                course_codes = ", ".join(c["course_code"] for c in courses_for_cat)
+            st.markdown("### ✅ Already Completed")
+            if already_done:
+                for cat in sorted(already_done):
+                    st.markdown(f'<span class="already-done-pill">✓ {cat}</span>', unsafe_allow_html=True)
+            else:
+                st.caption("None (no PDF uploaded or no completions detected)")
+
+        with col_b:
+            st.markdown("### 📋 Covered by Optimizer")
+            for cat in sorted(covered_by_optimizer):
+                courses_for = [c for c in selected if cat in c.get("ge_categories", [])]
+                codes = ", ".join(c["course_code"] for c in courses_for)
                 st.markdown(
                     f'<span class="covered-pill">✓ {cat}</span> '
-                    f'<span style="color:#666; font-size:0.8rem;">→ {course_codes}</span>',
+                    f'<span style="color:#666;font-size:0.78rem;">→ {codes}</span>',
                     unsafe_allow_html=True
                 )
 
-        with col_b:
+        with col_c:
+            st.markdown("### ❌ Still Uncovered")
             if uncovered:
-                st.markdown("### ❌ Not Covered")
                 for cat in sorted(uncovered):
-                    st.markdown(
-                        f'<span class="uncovered-pill">✗ {cat}</span>',
-                        unsafe_allow_html=True
-                    )
-                st.warning("These categories have no matching courses in the database. You may need to fill them manually.")
+                    st.markdown(f'<span class="uncovered-pill">✗ {cat}</span>', unsafe_allow_html=True)
+                st.warning("No courses found in the database for these categories.")
             else:
-                st.success("🎉 All GE categories are covered!")
+                st.success("🎉 All remaining requirements are covered!")
 
-        # Progress bar
         st.divider()
-        progress = len(covered) / len(GE_CATEGORIES)
-        st.markdown(f"**Overall GE Completion: {len(covered)}/{len(GE_CATEGORIES)} categories**")
-        st.progress(progress)
+        total_done = len(already_done) + len(covered_by_optimizer)
+        st.markdown(f"**Overall GE Progress: {total_done}/{len(all_cats)} categories**")
+        st.progress(total_done / len(all_cats))
 
+    # ── Tab 3: Double-Dippers ─────────────────────────────────────
     with tab3:
         st.subheader("⚡ Double-Dipping Courses")
-        st.caption("These courses satisfy multiple GE requirements — take these first!")
+        st.caption("These courses satisfy multiple GE requirements simultaneously — prioritize these!")
 
         if double_dippers:
             for c in sorted(double_dippers, key=lambda x: -len(x.get("ge_categories", []))):
-                cats = c.get("ge_categories", [])
+                cats  = c.get("ge_categories", [])
                 profs = c.get("professors", [])
-                top = profs[0] if profs else None
-
+                top   = profs[0] if profs else None
                 with st.container(border=True):
                     col1, col2 = st.columns([3, 1])
                     with col1:
                         st.markdown(f"### `{c['course_code']}` — {c['course_name']}")
-                        st.markdown(" · ".join(
-                            f'<span class="covered-pill">{cat}</span>' for cat in cats
-                        ), unsafe_allow_html=True)
+                        st.markdown(
+                            " · ".join(f'<span class="covered-pill">{cat}</span>' for cat in cats),
+                            unsafe_allow_html=True
+                        )
                     with col2:
                         st.metric("GE Categories", len(cats))
                         if top and top.get("rating"):
                             st.metric("RMP Rating", f"{top['rating']:.1f} / 5")
         else:
-            st.info("No double-dipping courses found in the current selection.")
+            st.info("No double-dipping courses in the current selection.")
 
 else:
-    # Landing state
     st.markdown("""
-    <div style="text-align:center; padding: 3rem; color: #888;">
-        <h3>👈 Press <strong>Run Optimizer</strong> in the sidebar to get started</h3>
-        <p>The optimizer will find the fewest BYU courses needed to fulfill all your GE requirements,<br>
-        ranked by RateMyProfessors ratings so you get the best professors too.</p>
+    <div style="text-align:center; padding: 2rem; color: #888;">
+        <h3>👆 Upload your degree audit (optional) then press <strong>Run Optimizer</strong></h3>
+        <p>The optimizer finds the fewest BYU courses to complete your remaining GE requirements,<br>
+        ranked by RateMyProfessors so you get the best professors.</p>
     </div>
     """, unsafe_allow_html=True)
