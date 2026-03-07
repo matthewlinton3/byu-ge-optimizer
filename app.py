@@ -1,5 +1,6 @@
 """
 BYU GE Optimizer — Streamlit Web App
+BYU brand UI: IBM Plex Sans, navy #002E5D, royal blue #0062B8.
 """
 
 import streamlit as st
@@ -8,7 +9,7 @@ from scraper import scrape_catalog_for_ge, GE_CATEGORIES, init_db
 from optimizer import optimize
 from rmp import enrich_with_rmp
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
-from pathways import get_remaining_requirements, PATHWAYS
+from pathways import get_remaining_requirements
 from ge_requirements import GE_REQUIREMENTS
 
 # ── Page config ──────────────────────────────────────────────────
@@ -16,353 +17,246 @@ st.set_page_config(
     page_title="BYU GE Optimizer",
     page_icon="🎓",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# ── Design System ────────────────────────────────────────────────
-# Palette: Cream #FAFAF8 | Charcoal #1A1A1A | Coral #E8673A
-# Type:    Georgia (headings) + system-ui (body)
+# ── BYU Brand Design System ─────────────────────────────────────
+# IBM Plex Sans, navy #002E5D, royal blue #0062B8, white, #F5F5F5 cards, #333333 body
 st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-/* ════════════════════════════════════════════════════════════════
-   Base & Background
-   ════════════════════════════════════════════════════════════════ */
-html, body, .stApp { background-color: #FAFAF8 !important; }
+:root {
+    --byu-navy: #002E5D;
+    --byu-royal: #0062B8;
+    --byu-white: #FFFFFF;
+    --byu-gray: #F5F5F5;
+    --byu-text: #333333;
+    --byu-text-muted: #666666;
+    --byu-border: #E0E0E0;
+}
+html, body, .stApp { background-color: var(--byu-white) !important; }
 .main .block-container {
-    background-color: #FAFAF8;
-    padding-top: 1rem;
-    padding-bottom: 4rem;
-    max-width: 1200px;
+    padding-top: 0;
+    padding-bottom: 3rem;
+    max-width: 1100px;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   Typography
-   ════════════════════════════════════════════════════════════════ */
+/* Typography — IBM Plex Sans */
+h1, h2, h3, h4, p, li, span, label, .stCaption,
+[data-testid="stHeadingWithActionElements"] h1,
+[data-testid="stHeadingWithActionElements"] h2,
+[data-testid="stHeadingWithActionElements"] h3,
+[data-testid="stCaptionContainer"] {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
+}
 h1, h2, h3, h4,
 [data-testid="stHeadingWithActionElements"] h1,
 [data-testid="stHeadingWithActionElements"] h2,
 [data-testid="stHeadingWithActionElements"] h3 {
-    font-family: Georgia, 'Times New Roman', 'Book Antiqua', serif !important;
-    color: #1A1A1A !important;
-    font-weight: normal !important;
-    letter-spacing: -0.015em;
-}
-p, li, span, label, .stCaption, [data-testid="stCaptionContainer"] {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Custom Header
-   ════════════════════════════════════════════════════════════════ */
-.ge-header { text-align: center; padding: 1.75rem 0 1.25rem 0; }
-.ge-logo   { margin-bottom: 0.9rem; line-height: 0; }
-.ge-title  {
-    font-family: Georgia, serif !important;
-    font-size: 2.3rem !important;
-    font-weight: normal !important;
-    color: #1A1A1A !important;
-    letter-spacing: -0.03em;
-    margin: 0 0 0.45rem 0 !important;
-    line-height: 1.1 !important;
-}
-.ge-subtitle {
-    font-size: 1rem;
-    color: #6A6A62;
-    max-width: 500px;
-    margin: 0 auto;
-    line-height: 1.65;
-    font-family: system-ui, sans-serif;
-    font-weight: 400;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Sidebar — dark charcoal
-   ════════════════════════════════════════════════════════════════ */
-section[data-testid="stSidebar"],
-section[data-testid="stSidebar"] > div,
-[data-testid="stSidebarContent"] {
-    background-color: #1A1A1A !important;
-}
-/* All text inside sidebar inherits light color */
-section[data-testid="stSidebar"] * { color: #C0BFB6 !important; }
-
-/* Headings in sidebar: label-style */
-section[data-testid="stSidebar"] h1,
-section[data-testid="stSidebar"] h2,
-section[data-testid="stSidebar"] h3 {
-    font-family: system-ui, sans-serif !important;
-    font-size: 0.68rem !important;
+    color: var(--byu-text) !important;
     font-weight: 600 !important;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: #666660 !important;
-    margin-bottom: 0.75rem;
 }
-section[data-testid="stSidebar"] hr { border-color: #2C2C2C !important; }
-section[data-testid="stSidebar"] .stCaption,
-section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
-    color: #505048 !important;
+p, li, span, label, .stCaption { color: var(--byu-text) !important; }
+
+/* Hero — navy background */
+.byu-hero {
+    background: var(--byu-navy);
+    color: var(--byu-white);
+    padding: 2.5rem 1.5rem;
+    margin: -1rem -1rem 1.5rem -1rem;
+    border-radius: 0;
+    text-align: center;
+    font-family: 'IBM Plex Sans', sans-serif !important;
 }
-/* Sidebar toggle: coral when on */
-section[data-testid="stSidebar"] [data-testid="stToggle"] [aria-checked="true"],
-section[data-testid="stSidebar"] [role="switch"][aria-checked="true"] {
-    background-color: #E8673A !important;
+.byu-hero h1 {
+    color: var(--byu-white) !important;
+    font-size: 2rem !important;
+    font-weight: 700 !important;
+    margin: 0 0 0.5rem 0 !important;
+    letter-spacing: -0.02em;
 }
-/* Sidebar radio active label */
-section[data-testid="stSidebar"] [data-testid="stRadio"] [data-checked="true"] span,
-section[data-testid="stSidebar"] .stRadio label[data-active="true"] {
-    color: #E8673A !important;
+.byu-hero .byu-hero-desc {
+    color: rgba(255,255,255,0.9);
+    font-size: 1rem;
+    font-weight: 400;
+    max-width: 520px;
+    margin: 0 auto;
+    line-height: 1.5;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   Buttons
-   ════════════════════════════════════════════════════════════════ */
-/* Primary — coral fill */
+/* Cards — light gray background */
+.byu-card {
+    background: var(--byu-gray);
+    border: 1px solid var(--byu-border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+}
+.byu-card-upload {
+    max-width: 560px;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+}
+
+/* Course result cards */
+.byu-course-card {
+    background: var(--byu-white);
+    border: 1px solid var(--byu-border);
+    border-left: 4px solid var(--byu-royal);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+}
+.byu-course-card .course-title { font-weight: 600; color: var(--byu-navy); font-size: 1.05rem; }
+.byu-course-card .course-code { color: var(--byu-royal); font-weight: 600; }
+.byu-course-card .ge-pills { margin: 0.5rem 0; }
+.byu-course-card .prof-row { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #eee; font-size: 0.9rem; color: var(--byu-text); }
+.byu-course-card .prof-name { font-weight: 500; }
+.byu-course-card .stars { color: #f5a623; }
+
+/* Progress tracker */
+.byu-progress-section { margin: 1.5rem 0; }
+.byu-progress-title { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--byu-text-muted); margin-bottom: 0.5rem; }
+.byu-pill { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; margin: 3px 4px 3px 0; font-family: 'IBM Plex Sans', sans-serif; }
+.byu-pill-done { background: #E8F4EA; color: #1B5E20; }
+.byu-pill-remaining { background: #E3F2FD; color: var(--byu-navy); }
+.byu-pill-uncovered { background: #FFEBEE; color: #B71C1C; }
+
+/* Buttons — royal blue primary */
 button[data-testid="baseButton-primary"],
 .stFormSubmitButton button {
-    background-color: #E8673A !important;
-    color: #FFFFFF !important;
+    background: var(--byu-royal) !important;
+    color: var(--byu-white) !important;
     border: none !important;
     border-radius: 8px !important;
-    font-family: system-ui, sans-serif !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
     font-weight: 500 !important;
-    letter-spacing: 0.01em;
-    box-shadow: 0 1px 4px rgba(232,103,58,0.28) !important;
-    transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
 }
 button[data-testid="baseButton-primary"]:hover,
 .stFormSubmitButton button:hover {
-    background-color: #D45A2F !important;
-    box-shadow: 0 3px 8px rgba(232,103,58,0.36) !important;
+    background: #004C8C !important;
+    color: var(--byu-white) !important;
 }
-/* Secondary — charcoal outline */
-button[data-testid="baseButton-secondary"],
-.stButton > button,
-.stDownloadButton button {
-    background-color: transparent !important;
-    color: #1A1A1A !important;
-    border: 1.5px solid #D4D3CB !important;
+.stButton > button:not([data-testid="baseButton-primary"]) {
+    background: var(--byu-white) !important;
+    color: var(--byu-navy) !important;
+    border: 1.5px solid var(--byu-navy) !important;
     border-radius: 8px !important;
-    font-family: system-ui, sans-serif !important;
-    font-weight: 500 !important;
-    transition: all 0.15s ease !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
 }
-button[data-testid="baseButton-secondary"]:hover,
-.stButton > button:hover,
-.stDownloadButton button:hover {
-    background-color: #1A1A1A !important;
-    color: #FAFAF8 !important;
-    border-color: #1A1A1A !important;
+.stButton > button:hover:not([data-testid="baseButton-primary"]) {
+    background: var(--byu-navy) !important;
+    color: var(--byu-white) !important;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   Tabs
-   ════════════════════════════════════════════════════════════════ */
-.stTabs [data-baseweb="tab-list"] {
-    background-color: transparent !important;
-    border-bottom: 1px solid #E0DFD8 !important;
-    gap: 0 !important;
+/* Sidebar — navy accent */
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div,
+[data-testid="stSidebarContent"] {
+    background: var(--byu-gray) !important;
 }
+section[data-testid="stSidebar"] * { color: var(--byu-text) !important; }
+section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+    color: var(--byu-navy) !important;
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+section[data-testid="stSidebar"] [data-testid="stToggle"][aria-checked="true"],
+section[data-testid="stSidebar"] [role="switch"][aria-checked="true"] { background: var(--byu-royal) !important; }
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] { border-bottom: 1px solid var(--byu-border) !important; }
 .stTabs [data-baseweb="tab"] {
-    background-color: transparent !important;
-    color: #8A8A80 !important;
-    border-bottom: 2px solid transparent !important;
-    font-family: system-ui, sans-serif !important;
-    font-size: 0.875rem !important;
+    color: var(--byu-text-muted) !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
     font-weight: 500 !important;
-    padding: 0.6rem 1.1rem !important;
 }
-.stTabs [data-baseweb="tab"]:hover { color: #1A1A1A !important; }
 .stTabs [aria-selected="true"] {
-    color: #1A1A1A !important;
-    border-bottom: 2px solid #E8673A !important;
-    background-color: transparent !important;
+    color: var(--byu-navy) !important;
+    border-bottom: 2px solid var(--byu-royal) !important;
 }
-/* Kill default Streamlit tab highlight */
-.stTabs [data-baseweb="tab-highlight"] { background-color: #E8673A !important; }
+.stTabs [data-baseweb="tab-highlight"] { background: var(--byu-royal) !important; }
 
-/* ════════════════════════════════════════════════════════════════
-   Metrics
-   ════════════════════════════════════════════════════════════════ */
+/* Inputs */
+.stTextInput input, .stTextArea textarea {
+    border: 1px solid var(--byu-border) !important;
+    border-radius: 8px !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus {
+    border-color: var(--byu-royal) !important;
+    box-shadow: 0 0 0 2px rgba(0,98,184,0.15) !important;
+}
+
+/* File uploader */
+[data-testid="stFileUploader"] > div {
+    border: 2px dashed var(--byu-border) !important;
+    border-radius: 12px !important;
+    background: var(--byu-white) !important;
+}
+[data-testid="stFileUploader"] [data-testid="baseButton-secondary"] {
+    border-color: var(--byu-royal) !important;
+    color: var(--byu-royal) !important;
+}
+
+/* Metrics */
 [data-testid="stMetric"] {
-    background-color: white;
-    border: 1px solid #E4E3DC;
+    background: var(--byu-gray);
+    border: 1px solid var(--byu-border);
     border-radius: 10px;
     padding: 1rem 1.25rem;
 }
-div[data-testid="stMetricValue"] {
-    font-family: Georgia, serif !important;
-    font-size: 1.9rem !important;
-    color: #1A1A1A !important;
-    font-weight: normal !important;
-}
-div[data-testid="stMetricLabel"] {
-    font-size: 0.68rem !important;
-    color: #8A8A80 !important;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    font-family: system-ui, sans-serif !important;
-}
+div[data-testid="stMetricValue"] { color: var(--byu-navy) !important; font-weight: 600 !important; font-family: 'IBM Plex Sans', sans-serif !important; }
+div[data-testid="stMetricLabel"] { color: var(--byu-text-muted) !important; font-size: 0.7rem !important; text-transform: uppercase; letter-spacing: 0.06em; }
 
-/* ════════════════════════════════════════════════════════════════
-   Form inputs
-   ════════════════════════════════════════════════════════════════ */
-.stTextInput input, .stTextArea textarea {
-    background-color: white !important;
-    border: 1px solid #E0DFD8 !important;
-    border-radius: 8px !important;
-    color: #1A1A1A !important;
-    font-family: system-ui, sans-serif !important;
-}
-.stTextInput input:focus, .stTextArea textarea:focus {
-    border-color: #E8673A !important;
-    box-shadow: 0 0 0 2px rgba(232,103,58,0.12) !important;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Expanders
-   ════════════════════════════════════════════════════════════════ */
+/* Expanders */
 [data-testid="stExpander"] {
-    border: 1px solid #E4E3DC !important;
+    border: 1px solid var(--byu-border) !important;
     border-radius: 10px !important;
-    background-color: white !important;
-    overflow: hidden;
+    background: var(--byu-gray) !important;
 }
-[data-testid="stExpander"] summary {
-    font-family: system-ui, sans-serif !important;
-    font-weight: 500 !important;
-    color: #1A1A1A !important;
-    padding: 0.7rem 1rem !important;
-}
+[data-testid="stExpander"] summary { font-weight: 500 !important; color: var(--byu-text) !important; }
 
-/* ════════════════════════════════════════════════════════════════
-   Cards (st.container with border=True)
-   ════════════════════════════════════════════════════════════════ */
-[data-testid="stVerticalBlockBorderWrapper"] {
-    border: 1px solid #E4E3DC !important;
-    border-left: 3px solid #E8673A !important;
-    border-radius: 10px !important;
-    background-color: white !important;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.04) !important;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Alerts
-   ════════════════════════════════════════════════════════════════ */
+/* Alerts — subtle BYU tint */
 [data-testid="stInfo"] {
-    background-color: #FEF6F2 !important;
-    border: 1px solid #F5C9B5 !important;
+    background: #E3F2FD !important;
+    border: 1px solid #BBDEFB !important;
     border-radius: 8px !important;
-    color: #7A3520 !important;
+    color: var(--byu-navy) !important;
 }
-[data-testid="stWarning"] {
-    background-color: #FFFBF0 !important;
-    border: 1px solid #EDD97B !important;
-    border-radius: 8px !important;
-}
-[data-testid="stSuccess"] {
-    background-color: #F0FAF4 !important;
-    border: 1px solid #A8D5B5 !important;
-    border-radius: 8px !important;
-}
-[data-testid="stError"] {
-    background-color: #FFF5F5 !important;
-    border: 1px solid #FFAAAA !important;
-    border-radius: 8px !important;
-}
+[data-testid="stSuccess"] { background: #E8F5E9 !important; border: 1px solid #C8E6C9 !important; border-radius: 8px !important; }
+[data-testid="stWarning"] { background: #FFF8E1 !important; border: 1px solid #FFECB3 !important; border-radius: 8px !important; }
+[data-testid="stError"] { background: #FFEBEE !important; border: 1px solid #FFCDD2 !important; border-radius: 8px !important; }
 
-/* ════════════════════════════════════════════════════════════════
-   Progress bar
-   ════════════════════════════════════════════════════════════════ */
-[data-testid="stProgressBar"] > div {
-    background-color: #E8E7E0 !important;
-    border-radius: 4px !important;
-}
-[data-testid="stProgressBar"] > div > div {
-    background-color: #E8673A !important;
-    border-radius: 4px !important;
-}
+/* Progress bar */
+[data-testid="stProgressBar"] > div > div { background: var(--byu-royal) !important; border-radius: 4px !important; }
 
-/* ════════════════════════════════════════════════════════════════
-   File uploader
-   ════════════════════════════════════════════════════════════════ */
-[data-testid="stFileUploader"] > div {
-    border: 2px dashed #D0CFC8 !important;
+/* Dividers */
+hr { border-color: var(--byu-border) !important; margin: 1.25rem 0 !important; }
+
+/* Vertical block border (containers with border) */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid var(--byu-border) !important;
+    border-left: 4px solid var(--byu-royal) !important;
     border-radius: 10px !important;
-    background-color: white !important;
-}
-[data-testid="stFileUploader"] [data-testid="baseButton-secondary"] {
-    border-color: #E8673A !important;
-    color: #E8673A !important;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Dataframe & Status
-   ════════════════════════════════════════════════════════════════ */
-[data-testid="stDataFrame"] {
-    border-radius: 10px !important;
-    overflow: hidden !important;
-    border: 1px solid #E4E3DC !important;
-}
-[data-testid="stStatusWidget"] {
-    background-color: white !important;
-    border: 1px solid #E4E3DC !important;
-    border-radius: 10px !important;
-}
-[data-testid="stCode"] {
-    border-radius: 8px !important;
-    border: 1px solid #E4E3DC !important;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Dividers & Scrollbar
-   ════════════════════════════════════════════════════════════════ */
-hr { border-color: #E4E3DC !important; margin: 1.5rem 0 !important; }
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: #F0EFE9; }
-::-webkit-scrollbar-thumb { background: #C8C7C0; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #E8673A; }
-
-/* ════════════════════════════════════════════════════════════════
-   Semantic Pills
-   ════════════════════════════════════════════════════════════════ */
-.covered-pill {
-    background: #E8F5EE; color: #1B6B3A;
-    border-radius: 6px; padding: 3px 10px;
-    font-size: 0.8rem; font-weight: 500; margin: 2px;
-    display: inline-block;
-    font-family: system-ui, sans-serif;
-}
-.uncovered-pill {
-    background: #FDE8E4; color: #B33000;
-    border-radius: 6px; padding: 3px 10px;
-    font-size: 0.8rem; font-weight: 500; margin: 2px;
-    display: inline-block;
-    font-family: system-ui, sans-serif;
-}
-.already-done-pill {
-    background: #F0EFE9; color: #4A4A42;
-    border-radius: 6px; padding: 3px 10px;
-    font-size: 0.8rem; font-weight: 500; margin: 2px;
-    display: inline-block;
-    font-family: system-ui, sans-serif;
+    background: var(--byu-white) !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Header — geometric SVG logo + serif title ─────────────────────
+# ── Hero section ──────────────────────────────────────────────────
 st.markdown("""
-<div class="ge-header">
-    <div class="ge-logo">
-        <svg width="60" height="42" viewBox="0 0 60 42" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="20" cy="21" r="18" fill="#E8673A" opacity="0.93"/>
-            <circle cx="40" cy="21" r="18" fill="#1A1A1A" opacity="0.88"/>
-        </svg>
-    </div>
-    <div class="ge-title">BYU GE Optimizer</div>
-    <p class="ge-subtitle">Find the minimum courses to finish your General Education requirements, ranked by professor quality.</p>
+<div class="byu-hero">
+    <h1>BYU GE Optimizer</h1>
+    <p class="byu-hero-desc">Find the minimum number of courses to finish your General Education requirements—with professor ratings to choose the best classes.</p>
 </div>
 """, unsafe_allow_html=True)
-st.divider()
 
 # ── Session state ─────────────────────────────────────────────────
 for key, default in [
@@ -374,528 +268,392 @@ for key, default in [
     ("pdf_confidence", None),
     ("manual_override", False),
     ("manual_completed", set()),
-    ("courses_taken", set()),   # individual course codes parsed from PDF
-    ("pathway_state", None),    # output of get_remaining_requirements()
-    ("data_source", None),      # "pdf" | "manual"
+    ("courses_taken", set()),
+    ("pathway_state", None),
+    ("data_source", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
 
 
-# ════════════════════════════════════════════════════════════════
-# STEP 1 — Import Your Degree Audit
-# ════════════════════════════════════════════════════════════════
-st.markdown("## Step 1 — Import Your Degree Audit")
-
-# ── Tabs: PDF Upload (hero) | Manual Entry (fallback) ────────────
-input_tab1, input_tab2 = st.tabs(["📄 Upload Degree Audit PDF", "✏️ Manual Entry"])
-
-# ── Shared helper: map course codes → completed GE categories ────────────────
 def _completed_from_courses(courses_taken: set) -> set:
-    """
-    Return the set of GE categories where at least one taken course appears
-    in GE_REQUIREMENTS, giving us an authoritative cross-reference check.
-    """
+    """Return GE categories completed per GE_REQUIREMENTS cross-reference."""
     return {
         cat for cat, codes in GE_REQUIREMENTS.items()
         if any(c in courses_taken for c in codes)
     }
 
 
-# ── Tab 1: PDF Upload (hero) ──────────────────────────────────────
+# ════════════════════════════════════════════════════════════════
+# STEP 1 — Import Degree Audit (centered card)
+# ════════════════════════════════════════════════════════════════
+st.markdown("## Step 1 — Import Your Degree Audit")
+
+input_tab1, input_tab2 = st.tabs(["📄 Upload PDF", "✏️ Manual Entry"])
+
 with input_tab1:
-    st.info(
-        "🔒 **Privacy** — Your PDF is processed entirely in-memory and never stored, logged, or shared."
-    )
-
-    with st.expander("❓ How to export your MyMap degree audit PDF", expanded=True):
-        st.markdown("""
-**Step 1** — Go to [mymap.byu.edu](https://mymap.byu.edu) and log in with your BYU NetID.
-
-**Step 2** — Click **Degree Audit** from the left sidebar or dashboard.
-
-**Step 3** — In your browser, open **Print** (Ctrl+P / Cmd+P), set the destination to **Save as PDF**, then click **Save**.
-
-**Step 4** — Upload the saved PDF below.
-        """)
-
-    uploaded_pdf = st.file_uploader(
-        "Upload BYU MyMap Degree Audit PDF",
-        type=["pdf"],
-        help="Download from MyMap → Degree Audit → Save as PDF"
-    )
+    st.markdown('<div class="byu-card byu-card-upload">', unsafe_allow_html=True)
+    col_upload = st.columns([1, 2, 1])
+    with col_upload[1]:
+        st.info("🔒 Your PDF is processed in-memory only and never stored or shared.")
+        with st.expander("How to get your MyMap degree audit PDF", expanded=False):
+            st.markdown("""
+1. Go to [mymap.byu.edu](https://mymap.byu.edu) and log in.
+2. Open **Degree Audit** from the sidebar.
+3. Use **Print → Save as PDF** in your browser.
+4. Upload the saved PDF below.
+            """)
+        uploaded_pdf = st.file_uploader(
+            "Upload BYU MyMap Degree Audit PDF",
+            type=["pdf"],
+            help="MyMap → Degree Audit → Save as PDF"
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if uploaded_pdf is not None:
         if not HAS_PDFPLUMBER:
-            st.error("⚠️ pdfplumber is not installed. Please use Manual Entry instead.")
+            st.error("pdfplumber is not installed. Use Manual Entry instead.")
             st.session_state.manual_override = True
         else:
-            with st.spinner("📄 Parsing PDF..."):
+            with st.spinner("Parsing PDF..."):
                 parse_result = parse_degree_audit(uploaded_pdf)
 
             if parse_result["error"]:
-                st.warning(f"⚠️ Could not fully parse PDF: {parse_result['error']}")
+                st.warning(f"Could not fully parse PDF: {parse_result['error']}. Use Manual Entry.")
                 st.session_state.manual_override = True
-
             elif parse_result["parse_confidence"] == "low":
-                st.warning("⚠️ Low confidence parse — please verify below or use Manual Entry.")
-                st.session_state.pdf_completed   = parse_result["completed"]
-                st.session_state.pdf_remaining   = parse_result["remaining"]
+                st.warning("Low confidence parse — verify below or use Manual Entry.")
+                st.session_state.pdf_completed = parse_result["completed"]
+                st.session_state.pdf_remaining = parse_result["remaining"]
                 st.session_state.manual_override = True
-
             else:
                 courses_taken = parse_result.get("courses_taken", set())
-                # Determine completion ONLY from course code cross-reference against GE_REQUIREMENTS.
-                # PDF text pattern matching (find_completed_categories) is intentionally excluded:
-                # it causes false positives when "Completed" appears in requirement section headers.
-                completed     = _completed_from_courses(courses_taken)
-                remaining     = set(GE_CATEGORIES.keys()) - completed
-                st.session_state.pdf_completed   = completed
-                st.session_state.pdf_remaining   = remaining
-                st.session_state.pdf_confidence  = parse_result["parse_confidence"]
-                st.session_state.courses_taken   = courses_taken
+                completed = _completed_from_courses(courses_taken)
+                remaining = set(GE_CATEGORIES.keys()) - completed
+                st.session_state.pdf_completed = completed
+                st.session_state.pdf_remaining = remaining
+                st.session_state.pdf_confidence = parse_result["parse_confidence"]
+                st.session_state.courses_taken = courses_taken
                 st.session_state.manual_override = False
-                st.session_state.data_source     = "pdf"
-
+                st.session_state.data_source = "pdf"
                 if courses_taken:
                     st.session_state.pathway_state = get_remaining_requirements(courses_taken, completed)
+                st.success(f"PDF parsed ({parse_result['parse_confidence']} confidence). **{len(completed)}** completed, **{len(courses_taken)}** courses detected.")
 
-                st.success(
-                    f"✅ PDF parsed ({parse_result['parse_confidence']} confidence). "
-                    f"Found **{len(completed)}** completed categories"
-                    + (f" and **{len(courses_taken)}** individual courses." if courses_taken else ".")
-                )
-
-    # Show summary after successful parse
+    # Progress tracker: completed vs remaining (pills)
     if (
         st.session_state.pdf_completed is not None
         and not st.session_state.manual_override
         and st.session_state.data_source == "pdf"
     ):
-        sum_col1, sum_col2 = st.columns(2)
-        with sum_col1:
-            st.markdown("**✅ Completed:**")
-            for cat in sorted(st.session_state.pdf_completed):
-                st.markdown(f'<span class="already-done-pill">✓ {cat}</span>', unsafe_allow_html=True)
-        with sum_col2:
-            st.markdown("**📌 Remaining:**")
-            for cat in sorted(st.session_state.pdf_remaining or []):
-                st.markdown(f'<span class="uncovered-pill">→ {cat}</span>', unsafe_allow_html=True)
-
-# ── Tab 2: Manual Entry ───────────────────────────────────────────
-with input_tab2:
-    st.markdown("### Manually Select Completed GE Categories")
-    st.caption("Check off every GE requirement you've already completed:")
-
-    all_cats        = sorted(GE_CATEGORIES.keys())
-    default_checked = sorted(st.session_state.pdf_completed or st.session_state.manual_completed)
-
-    manual_cols     = st.columns(2)
-    manual_selected = set()
-    for i, cat in enumerate(all_cats):
-        col     = manual_cols[i % 2]
-        already = cat in default_checked
-        if col.checkbox(cat, value=already, key=f"manual_{cat}"):
-            manual_selected.add(cat)
-
-    if st.button("Apply Manual Selection"):
-        st.session_state.manual_completed = manual_selected
-        st.session_state.pdf_completed    = manual_selected
-        st.session_state.pdf_remaining    = set(GE_CATEGORIES.keys()) - manual_selected
-        st.session_state.data_source      = "manual"
-        st.session_state.manual_override  = False
-        remaining_count = len(st.session_state.pdf_remaining)
-        st.success(
-            f"**{len(manual_selected)}** categories marked complete → "
-            f"optimizing for **{remaining_count}** remaining."
+        st.markdown('<div class="byu-progress-section">', unsafe_allow_html=True)
+        st.markdown('<p class="byu-progress-title">Completed</p>', unsafe_allow_html=True)
+        done_html = "".join(
+            f'<span class="byu-pill byu-pill-done">✓ {cat}</span>'
+            for cat in sorted(st.session_state.pdf_completed)
         )
+        st.markdown(f'<div class="byu-card">{done_html or "<span style=\"color:#888;\">None</span>"}</div>', unsafe_allow_html=True)
+        st.markdown('<p class="byu-progress-title">Remaining</p>', unsafe_allow_html=True)
+        rem = st.session_state.pdf_remaining or set()
+        rem_html = "".join(
+            f'<span class="byu-pill byu-pill-remaining">{cat}</span>'
+            for cat in sorted(rem)
+        )
+        st.markdown(f'<div class="byu-card">{rem_html or "<span style=\"color:#888;\">None</span>"}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-# ── Global fallback notice ────────────────────────────────────────
+with input_tab2:
+    with st.container():
+        st.markdown("### Manually select completed GE categories")
+        st.caption("Check every requirement you've already completed.")
+        all_cats = sorted(GE_CATEGORIES.keys())
+        default_checked = sorted(st.session_state.pdf_completed or st.session_state.manual_completed)
+        manual_cols = st.columns(2)
+        manual_selected = set()
+        for i, cat in enumerate(all_cats):
+            col = manual_cols[i % 2]
+            if col.checkbox(cat, value=(cat in default_checked), key=f"manual_{cat}"):
+                manual_selected.add(cat)
+        if st.button("Apply Manual Selection"):
+            st.session_state.manual_completed = manual_selected
+            st.session_state.pdf_completed = manual_selected
+            st.session_state.pdf_remaining = set(GE_CATEGORIES.keys()) - manual_selected
+            st.session_state.data_source = "manual"
+            st.session_state.manual_override = False
+            st.success(f"**{len(manual_selected)}** complete → **{len(st.session_state.pdf_remaining)}** remaining.")
+
 if st.session_state.manual_override:
-    st.warning(
-        "⚠️ Could not fully parse your PDF. "
-        "Switch to the **Manual Entry** tab to select your completed categories, "
-        "then run the optimizer."
-    )
+    st.warning("Could not fully parse your PDF. Use the **Manual Entry** tab, then run the optimizer.")
 
 st.divider()
 
 
 # ════════════════════════════════════════════════════════════════
-# STEP 2 — Optimizer Options + Run
+# STEP 2 — Run Optimizer
 # ════════════════════════════════════════════════════════════════
 st.markdown("## Step 2 — Run the Optimizer")
 
 with st.sidebar:
-    st.markdown("### Optimizer")
-    use_ilp  = st.toggle("ILP Optimization", value=True,
-                         help="Finds the true minimum number of courses. Greedy is faster but not always optimal.")
-    skip_rmp = st.toggle("Skip RMP Ratings", value=False,
-                         help="Skip RateMyProfessors lookup (faster, but no professor data)")
-    refresh  = st.toggle("Refresh Catalog", value=False,
-                         help="Re-scrape BYU catalog. Slow — only use if data seems outdated.")
+    st.markdown("### Options")
+    use_ilp = st.toggle("ILP Optimization", value=True, help="Minimum courses. Turn off for faster greedy.")
+    skip_rmp = st.toggle("Skip RMP Ratings", value=False, help="Faster run, no professor data.")
+    refresh = st.toggle("Refresh Catalog", value=False, help="Re-scrape BYU catalog (slow).")
     st.divider()
-    st.markdown("### Sort Priority")
+    st.markdown("### Sort results by")
     sort_priority = st.radio(
-        "",
+        "Sort results by",
         options=["Balanced", "Fewest Classes", "Best Professor", "Easiest Classes"],
         index=0,
         label_visibility="collapsed",
-        help=(
-            "**Balanced** — Double-dippers first, then highest RMP rating, then lowest difficulty.\n\n"
-            "**Fewest Classes** — Maximise GE categories covered per course.\n\n"
-            "**Best Professor** — Highest RMP overall rating.\n\n"
-            "**Easiest Classes** — Lowest RMP difficulty score."
-        ),
     )
     st.divider()
-    st.caption("Python · PuLP · Streamlit")
     st.caption("BYU Catalog · RateMyProfessors")
 
-with st.expander("🔍 Debug: What the Optimizer Will See", expanded=False):
-    _completed  = st.session_state.pdf_completed or set()
-    _remaining  = st.session_state.pdf_remaining or set(GE_CATEGORIES.keys())
-    _taken      = st.session_state.courses_taken or set()
-    _debug_cols = st.columns(3)
-    with _debug_cols[0]:
-        st.markdown("**✅ Completed (skipped):**")
-        if _completed:
-            for _c in sorted(_completed):
-                st.caption(f"✓ {_c}")
-        else:
-            st.caption("None — optimizing all 13 categories")
-    with _debug_cols[1]:
-        st.markdown("**📌 Remaining (optimizer targets):**")
-        for _c in sorted(_remaining):
-            st.caption(f"→ {_c}")
-    with _debug_cols[2]:
-        st.markdown("**📚 Individual courses taken:**")
-        if _taken:
-            for _c in sorted(_taken):
-                st.caption(f"· {_c}")
-        else:
-            st.caption("None detected")
-    st.caption(
-        f"Source: **{st.session_state.data_source or 'none selected'}** · "
-        f"{len(_completed)} completed · {len(_remaining)} remaining · "
-        f"{len(_taken)} courses taken"
-    )
+with st.expander("🔍 Debug: What the optimizer will see", expanded=False):
+    _completed = st.session_state.pdf_completed or set()
+    _remaining = st.session_state.pdf_remaining or set(GE_CATEGORIES.keys())
+    _taken = st.session_state.courses_taken or set()
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.caption("**Completed:** " + (", ".join(sorted(_completed)) if _completed else "None"))
+    with c2:
+        st.caption("**Remaining:** " + ", ".join(sorted(_remaining)))
+    with c3:
+        st.caption("**Courses taken:** " + (", ".join(sorted(_taken)) if _taken else "None"))
+    st.caption(f"Source: {st.session_state.data_source or 'none'} · {len(_completed)} done · {len(_remaining)} remaining")
     if st.session_state.data_source is None:
-        st.warning("⚠️ No data source selected yet — go to Step 1 and upload your PDF or select categories manually.")
+        st.warning("No data yet — upload a PDF or use Manual Entry.")
 
-run_btn = st.button("🚀 Run Optimizer", type="primary")
+run_btn = st.button("Run Optimizer", type="primary")
 
 
-# ── Run optimizer ─────────────────────────────────────────────────
 def run_optimizer(use_ilp, skip_rmp, refresh, remaining_requirements, courses_taken):
     init_db()
-    with st.status("⚙️ Running optimizer...", expanded=True) as status:
-        st.write("📚 Loading BYU GE course data...")
+    with st.status("Running optimizer...", expanded=True) as status:
+        st.write("Loading BYU GE course data...")
         courses = scrape_catalog_for_ge(refresh=refresh)
-        st.write(f"✅ Loaded {len(courses)} GE courses")
-
-        if courses_taken:
-            st.write(f"🔍 Using pathway-aware optimization ({len(courses_taken)} courses already taken detected)...")
+        st.write(f"Loaded {len(courses)} GE courses")
         target_count = len(remaining_requirements) if remaining_requirements else len(GE_CATEGORIES)
-        st.write(f"🧮 Optimizing for {target_count} remaining GE categories...")
+        st.write(f"Optimizing for {target_count} remaining categories...")
         selected, uncovered = optimize(
             courses,
             use_ilp=use_ilp,
             remaining_requirements=remaining_requirements,
             courses_taken=courses_taken or None,
         )
-        st.write(f"✅ Selected {len(selected)} courses")
-
+        st.write(f"Selected {len(selected)} courses")
         if not skip_rmp:
-            st.write("⭐ Fetching RateMyProfessors ratings...")
+            st.write("Fetching RateMyProfessors ratings...")
             selected = enrich_with_rmp(selected, refresh=refresh)
-            st.write("✅ Professor ratings loaded")
-
-        status.update(label="✅ Optimization complete!", state="complete")
-
+            st.write("Ratings loaded")
+        status.update(label="Optimization complete", state="complete")
     return selected, uncovered
 
 
 if run_btn:
-    remaining     = st.session_state.pdf_remaining
+    remaining = st.session_state.pdf_remaining
     courses_taken = st.session_state.courses_taken
     selected, uncovered = run_optimizer(use_ilp, skip_rmp, refresh, remaining, courses_taken)
-    st.session_state.results   = selected
+    st.session_state.results = selected
     st.session_state.uncovered = uncovered
 
 
 # ════════════════════════════════════════════════════════════════
-# STEP 3 — Results
+# STEP 3 — Results (cards, progress tracker, no raw dataframe)
 # ════════════════════════════════════════════════════════════════
 if st.session_state.results is not None:
-    selected     = list(st.session_state.results)   # copy so we can re-sort for display
-    uncovered    = st.session_state.uncovered
+    selected = list(st.session_state.results)
+    uncovered = st.session_state.uncovered
     already_done = st.session_state.pdf_completed or set()
 
-    # ── Apply sort priority (dynamically, no need to re-run optimizer) ────────
     if sort_priority == "Best Professor":
         selected.sort(key=lambda c: -(c.get("rmp_rating") or 0))
     elif sort_priority == "Easiest Classes":
-        selected.sort(key=lambda c: (
-            (c.get("rmp_difficulty") or 0) == 0,   # push no-data courses to end
-            c.get("rmp_difficulty") or 99,
-        ))
+        selected.sort(key=lambda c: ((c.get("rmp_difficulty") or 0) == 0, c.get("rmp_difficulty") or 99))
     elif sort_priority == "Fewest Classes":
         selected.sort(key=lambda c: -len(c.get("ge_categories", [])))
-    else:  # Balanced (default)
+    else:
         selected.sort(key=lambda c: (
-            -len(c.get("ge_categories", [])),       # most categories first
-            -(c.get("rmp_rating") or 0),            # then highest RMP rating
-            c.get("rmp_difficulty") or 99,          # then lowest difficulty
+            -len(c.get("ge_categories", [])),
+            -(c.get("rmp_rating") or 0),
+            c.get("rmp_difficulty") or 99,
         ))
 
-    all_cats             = set(GE_CATEGORIES.keys())
+    all_cats = set(GE_CATEGORIES.keys())
     covered_by_optimizer = all_cats - uncovered - already_done
-    total_credits        = sum(c.get("credit_hours", 3) for c in selected)
-    # Double-dippers: use ge_categories_all (original full list) so that courses
-    # covering 2+ GE categories by design still show up even if one is already done.
-    double_dippers       = [c for c in selected if len(c.get("ge_categories_all", c.get("ge_categories", []))) > 1]
+    total_credits = sum(c.get("credit_hours", 3) for c in selected)
+    double_dippers = [c for c in selected if len(c.get("ge_categories_all", c.get("ge_categories", []))) > 1]
 
     st.divider()
     st.markdown("## Results")
 
-    # ── Debug: GE Completion Source ───────────────────────────────
-    with st.expander("🔍 Debug: What Triggered Each GE Completion", expanded=False):
-        taken = st.session_state.courses_taken or set()
-        st.caption("Completions use **only** course code cross-reference — PDF text patterns are never used.")
-        if already_done:
-            st.markdown("")
-            for cat in sorted(already_done):
-                triggering = sorted(c for c in taken if c in GE_REQUIREMENTS.get(cat, []))
-                if triggering:
-                    st.success(f"**{cat}** — {', '.join(triggering)}")
-                else:
-                    st.warning(f"**{cat}** — marked complete but no matching course found (possible stale session state)")
-            unmatched = sorted(
-                c for c in taken
-                if not any(c in codes for codes in GE_REQUIREMENTS.values())
-            )
-            if unmatched:
-                st.markdown("**Courses from PDF not mapped to any GE category:**")
-                st.caption(", ".join(unmatched))
-        else:
-            st.caption("No completions detected yet — upload a PDF and run the optimizer.")
+    # Progress tracker: completed | covered by optimizer | still uncovered
+    st.markdown("### GE progress")
+    prog_col1, prog_col2, prog_col3 = st.columns(3)
+    with prog_col1:
+        st.markdown("**Completed**")
+        done_pills = "".join(
+            f'<span class="byu-pill byu-pill-done">✓ {cat}</span>'
+            for cat in sorted(already_done)
+        )
+        st.markdown(f'<div class="ge-pills">{done_pills or "—"}</div>', unsafe_allow_html=True)
+    with prog_col2:
+        st.markdown("**Covered by recommendations**")
+        cov_pills = "".join(
+            f'<span class="byu-pill byu-pill-remaining">{cat}</span>'
+            for cat in sorted(covered_by_optimizer)
+        )
+        st.markdown(f'<div class="ge-pills">{cov_pills or "—"}</div>', unsafe_allow_html=True)
+    with prog_col3:
+        st.markdown("**Still uncovered**")
+        unc_pills = "".join(
+            f'<span class="byu-pill byu-pill-uncovered">{cat}</span>'
+            for cat in sorted(uncovered)
+        )
+        st.markdown(f'<div class="ge-pills">{unc_pills or "None"}</div>', unsafe_allow_html=True)
 
-    # ── Pathway partial-completion notice ────────────────────────
-    pathway_state = st.session_state.get("pathway_state")
-    if pathway_state and pathway_state.get("partial"):
-        with st.expander("⚡ Partial Requirements Detected — Pathway Shortcuts Applied", expanded=True):
-            st.caption(
-                "The optimizer found courses you've already started and chose the "
-                "cheapest pathway to complete each one."
-            )
-            for cat, state in pathway_state["partial"].items():
-                # state is a PathwayResult dataclass — use attribute access
-                taken_str = ", ".join(state.already_taken) or "none"
-                needed    = state.courses_remaining
-                pathway   = state.pathway.description
-                st.markdown(
-                    f"**{cat}** — You've taken `{taken_str}`. "
-                    f"Pathway: _{pathway}_. **{needed} more course(s) needed.**"
-                )
+    total_done = len(already_done) + len(covered_by_optimizer)
+    st.progress(total_done / len(all_cats))
+    st.caption(f"Overall: {total_done}/{len(all_cats)} categories")
 
-    # ── Metrics ──────────────────────────────────────────────────
+    # Metrics row
     m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("📚 Courses to Take",    len(selected))
-    m2.metric("🎯 Estimated Credits",  f"~{total_credits}")
-    m3.metric("✅ Already Done",        len(already_done))
-    m4.metric("📌 Categories Covered", len(covered_by_optimizer))
-    m5.metric("⚡ Double-Dippers",     len(double_dippers))
+    m1.metric("Courses to take", len(selected))
+    m2.metric("Est. credits", f"~{total_credits}")
+    m3.metric("Already done", len(already_done))
+    m4.metric("Covered", len(covered_by_optimizer))
+    m5.metric("Double-dippers", len(double_dippers))
 
     st.divider()
 
-    tab1, tab2, tab3 = st.tabs(["📋 Recommended Courses", "📊 Full GE Map", "⚡ Double-Dippers"])
+    tab1, tab2, tab3 = st.tabs(["Recommended courses", "Full GE map", "Double-dippers"])
 
-    # ── Tab 1: Course Table ───────────────────────────────────────
+    # Tab 1: Course cards (no dataframe)
     with tab1:
-        st.subheader("Recommended Courses")
-        col_hdr, col_sort_label = st.columns([3, 1])
-        with col_hdr:
-            if already_done:
-                st.caption(
-                    f"Showing only courses for your **{len(st.session_state.pdf_remaining or all_cats)}** "
-                    f"remaining GE categories — {len(already_done)} already-completed categories excluded."
-                )
-        with col_sort_label:
-            st.caption(f"🏆 Sorted by: **{sort_priority}**")
+        st.caption(f"Sorted by: **{sort_priority}**")
+        for c in selected:
+            cats = c.get("ge_categories", [])
+            cats_display = ", ".join(cats)
+            profs = c.get("professors", [])
+            ge_pills_html = "".join(
+                f'<span class="byu-pill byu-pill-remaining">{cat}</span>'
+                for cat in cats
+            )
+            prof_rows = []
+            if profs:
+                for p in profs:
+                    rating = p.get("rating") or 0
+                    diff = p.get("difficulty")
+                    wta = p.get("would_take_again")
+                    star_str = f'<span class="stars">★ {rating:.1f}</span>' if rating else "—"
+                    diff_str = f"Difficulty {diff:.1f}/5" if diff else ""
+                    wta_str = f"{wta:.0f}% would take again" if wta is not None and wta >= 0 else ""
+                    parts = [f'<span class="prof-name">{p.get("name", "—")}</span>', star_str, diff_str, wta_str]
+                    prof_rows.append('<div class="prof-row">' + " · ".join(p for p in parts if p) + "</div>")
+            else:
+                prof_rows.append('<div class="prof-row">No professor ratings yet</div>')
+            card_html = f"""
+            <div class="byu-course-card">
+                <div class="course-title"><span class="course-code">{c['course_code']}</span> — {c['course_name']}</div>
+                <div class="ge-pills">{ge_pills_html}</div>
+                {"".join(prof_rows)}
+            </div>
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
 
-        # ── Build one row per professor per course ────────────────
+        with st.expander("Column guide", expanded=False):
+            st.markdown("| Column | Meaning |\n|--------|--------|\n| Professor | Current instructors; RMP rating, difficulty, would-take-again %. |\n| GE categories | Remaining requirements this course fulfills. |")
+
+        # CSV export
         rows = []
         for c in selected:
-            profs    = c.get("professors", [])
-            cats     = c.get("ge_categories", [])
-            cats_all = c.get("ge_categories_all", cats)
-            sec_count = c.get("section_count", 0)
-            sec_label = f"{sec_count} section{'s' if sec_count != 1 else ''}" if sec_count else ""
-
+            profs = c.get("professors", [])
+            cats = c.get("ge_categories", [])
             if profs:
-                for prof in profs:
-                    has_rating = (prof.get("rating") or 0) > 0
-                    has_diff   = (prof.get("difficulty") or 0) > 0
-                    has_wta    = (prof.get("would_take_again") or -1) >= 0
+                for p in profs:
                     rows.append({
-                        "Course":           c["course_code"],
-                        "Name":             c["course_name"],
-                        "Credits":          c.get("credit_hours", 3),
-                        "GE Categories":    ", ".join(cats),
-                        "# Categories":     len(cats_all),
-                        "Sections":         sec_label,
-                        "Professor":        prof["name"],
-                        "Rating (/5)":      round(prof["rating"], 1)            if has_rating else None,
-                        "Difficulty (/5)":  round(prof["difficulty"], 1)        if has_diff   else None,
-                        "Would Take Again": f"{prof['would_take_again']:.0f}%"  if has_wta    else "—",
+                        "Course": c["course_code"],
+                        "Name": c["course_name"],
+                        "GE Categories": ", ".join(cats),
+                        "Professor": p.get("name", ""),
+                        "Rating": round(p["rating"], 1) if p.get("rating") else None,
+                        "Difficulty": round(p["difficulty"], 1) if p.get("difficulty") else None,
+                        "Would Take Again": f"{p['would_take_again']:.0f}%" if p.get("would_take_again") is not None and p["would_take_again"] >= 0 else "—",
                     })
             else:
                 rows.append({
-                    "Course":           c["course_code"],
-                    "Name":             c["course_name"],
-                    "Credits":          c.get("credit_hours", 3),
-                    "GE Categories":    ", ".join(cats),
-                    "# Categories":     len(cats_all),
-                    "Sections":         sec_label,
-                    "Professor":        "No ratings yet",
-                    "Rating (/5)":      None,
-                    "Difficulty (/5)":  None,
+                    "Course": c["course_code"],
+                    "Name": c["course_name"],
+                    "GE Categories": ", ".join(cats),
+                    "Professor": "—",
+                    "Rating": None,
+                    "Difficulty": None,
                     "Would Take Again": "—",
                 })
+        df_export = pd.DataFrame(rows)
+        st.download_button("Download CSV", data=df_export.to_csv(index=False), file_name="byu_ge_optimizer_results.csv", mime="text/csv")
 
-        df = pd.DataFrame(rows)
-
-        def color_rating(val):
-            if pd.isna(val):  return "color: #B0AFA8; font-style: italic"
-            if val >= 4.0:    return "color: #1B6B3A; font-weight: 600"
-            if val >= 3.0:    return "color: #8A5A00"
-            return "color: #B33000"
-
-        def color_difficulty(val):
-            if pd.isna(val):  return "color: #B0AFA8; font-style: italic"
-            if val <= 2.5:    return "color: #1B6B3A"
-            if val <= 3.5:    return "color: #8A5A00"
-            return "color: #B33000; font-weight: 600"
-
-        max_cats = int(df["# Categories"].max()) if not df.empty else 0
-
-        def highlight_cat_count(val):
-            if max_cats > 1 and val == max_cats:
-                return "background-color: #FEF3EC; color: #B33000; font-weight: 600"
-            return ""
-
-        styled = (
-            df.style
-            .format({
-                "Rating (/5)":     lambda v: f"{v:.1f}" if pd.notna(v) else "No ratings yet",
-                "Difficulty (/5)": lambda v: f"{v:.1f}" if pd.notna(v) else "No ratings yet",
-            })
-            .applymap(color_rating,        subset=["Rating (/5)"])
-            .applymap(color_difficulty,    subset=["Difficulty (/5)"])
-            .applymap(highlight_cat_count, subset=["# Categories"])
-        )
-
-        st.dataframe(styled, use_container_width=True, hide_index=True)
-
-        # ── Legend ────────────────────────────────────────────────
-        with st.expander("ℹ️ Column Guide", expanded=False):
-            st.markdown("""
-| Column | Meaning |
-|--------|---------|
-| **Professor** | Each professor currently teaching a section of this course this semester, sorted by RMP rating (best first). Matched by name to RMP using fuzzy matching. |
-| **Rating (/5)** | RMP overall professor rating (5 = best). Green ≥ 4.0, orange ≥ 3.0, red < 3.0 |
-| **Difficulty (/5)** | RMP difficulty score (lower = easier). Green ≤ 2.5, orange ≤ 3.5, red > 3.5 |
-| **Would Take Again** | % of students who would re-take this professor's class |
-| **Sections** | Total sections offered this semester (all delivery modes) |
-| **# Categories** | How many of your *remaining* GE requirements this course covers. Highlighted = most categories per course |
-| **No ratings yet** | Professor has no RMP profile, or course not offered this semester |
-""")
-
-        st.download_button(
-            "⬇️ Download as CSV", data=df.to_csv(index=False),
-            file_name="byu_ge_optimizer_results.csv", mime="text/csv"
-        )
-
-    # ── Tab 2: Full GE Map ────────────────────────────────────────
+    # Tab 2: Full GE map
     with tab2:
-        st.subheader("Full GE Requirement Map")
         col_a, col_b, col_c = st.columns(3)
-
         with col_a:
-            st.markdown("### ✅ Already Completed")
-            if already_done:
-                for cat in sorted(already_done):
-                    st.markdown(f'<span class="already-done-pill">✓ {cat}</span>', unsafe_allow_html=True)
-            else:
-                st.caption("None (no PDF uploaded or no completions detected)")
-
+            st.markdown("**Completed**")
+            for cat in sorted(already_done):
+                st.markdown(f'<span class="byu-pill byu-pill-done">✓ {cat}</span>', unsafe_allow_html=True)
         with col_b:
-            st.markdown("### 📋 Covered by Optimizer")
+            st.markdown("**Covered by optimizer**")
             for cat in sorted(covered_by_optimizer):
                 courses_for = [c for c in selected if cat in c.get("ge_categories", [])]
                 codes = ", ".join(c["course_code"] for c in courses_for)
-                st.markdown(
-                    f'<span class="covered-pill">✓ {cat}</span> '
-                    f'<span style="color:#666;font-size:0.78rem;">→ {codes}</span>',
-                    unsafe_allow_html=True
-                )
-
+                st.markdown(f'<span class="byu-pill byu-pill-remaining">{cat}</span> <span style="color:#666;font-size:0.8rem;">→ {codes}</span>', unsafe_allow_html=True)
         with col_c:
-            st.markdown("### ❌ Still Uncovered")
+            st.markdown("**Uncovered**")
             if uncovered:
                 for cat in sorted(uncovered):
-                    st.markdown(f'<span class="uncovered-pill">✗ {cat}</span>', unsafe_allow_html=True)
-                st.warning("No courses found in the database for these categories.")
+                    st.markdown(f'<span class="byu-pill byu-pill-uncovered">{cat}</span>', unsafe_allow_html=True)
+                st.warning("No courses in catalog for these categories.")
             else:
-                st.success("🎉 All remaining requirements are covered!")
+                st.success("All remaining requirements covered.")
 
-        st.divider()
-        total_done = len(already_done) + len(covered_by_optimizer)
-        st.markdown(f"**Overall GE Progress: {total_done}/{len(all_cats)} categories**")
-        st.progress(total_done / len(all_cats))
-
-    # ── Tab 3: Double-Dippers ─────────────────────────────────────
+    # Tab 3: Double-dippers
     with tab3:
-        st.subheader("⚡ Double-Dipping Courses")
-        st.caption("These courses satisfy multiple GE requirements simultaneously — prioritize these!")
-
         if double_dippers:
             for c in sorted(double_dippers, key=lambda x: -len(x.get("ge_categories_all", x.get("ge_categories", [])))):
-                cats_remaining = c.get("ge_categories", [])
-                cats_all       = c.get("ge_categories_all", cats_remaining)
-                cats_done      = [cat for cat in cats_all if cat not in cats_remaining]
-                profs = c.get("professors", [])
-                top   = profs[0] if profs else None
+                cats_all = c.get("ge_categories_all", c.get("ge_categories", []))
+                cats_rem = c.get("ge_categories", [])
                 with st.container(border=True):
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.markdown(f"### `{c['course_code']}` — {c['course_name']}")
-                        remaining_pills = " · ".join(
-                            f'<span class="covered-pill">{cat}</span>'
-                            for cat in cats_remaining
-                        )
-                        done_pills = " · ".join(
-                            f'<span class="already-done-pill">✓ {cat}</span>'
-                            for cat in cats_done
-                        )
-                        display_pills = " · ".join(filter(None, [remaining_pills, done_pills]))
-                        st.markdown(display_pills, unsafe_allow_html=True)
-                        if cats_done:
-                            st.caption(f"Blue = already satisfied · Green = still needed")
-                    with col2:
-                        st.metric("Covers (total)", len(cats_all))
-                        st.metric("Still Needed", len(cats_remaining))
-                        if top and top.get("rating"):
-                            st.metric("RMP Rating", f"{top['rating']:.1f} / 5")
+                    st.markdown(f"**{c['course_code']}** — {c['course_name']}")
+                    pills = "".join(f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in cats_rem)
+                    st.markdown(pills, unsafe_allow_html=True)
+                    st.caption(f"Covers {len(cats_all)} categories · {len(cats_rem)} still needed")
         else:
-            st.info("No double-dipping courses in the current selection.")
+            st.info("No double-dipping courses in this selection.")
+
+    # Debug expander (collapsed)
+    with st.expander("🔍 Debug: What triggered each GE completion", expanded=False):
+        taken = st.session_state.courses_taken or set()
+        st.caption("Completions use course code cross-reference only.")
+        for cat in sorted(already_done):
+            triggering = sorted(c for c in taken if c in GE_REQUIREMENTS.get(cat, []))
+            if triggering:
+                st.success(f"**{cat}** — {', '.join(triggering)}")
+            else:
+                st.warning(f"**{cat}** — no matching course in GE list")
+        unmatched = sorted(c for c in taken if not any(c in codes for codes in GE_REQUIREMENTS.values()))
+        if unmatched:
+            st.caption("Courses not in any GE category: " + ", ".join(unmatched))
+
+    pathway_state = st.session_state.get("pathway_state")
+    if pathway_state and pathway_state.get("partial"):
+        with st.expander("Partial requirements — pathway shortcuts applied", expanded=False):
+            for cat, state in pathway_state["partial"].items():
+                taken_str = ", ".join(state.already_taken) or "none"
+                st.markdown(f"**{cat}** — Taken: `{taken_str}`. **{state.courses_remaining}** more needed.")
 
 else:
     st.markdown("""
-    <div style="text-align:center; padding: 2rem; color: #888;">
-        <h3>👆 Upload your degree audit PDF (optional) then press <strong>Run Optimizer</strong></h3>
-        <p>The optimizer finds the fewest BYU courses to complete your remaining GE requirements,<br>
-        ranked by current professor ratings from RateMyProfessors.</p>
+    <div style="text-align:center; padding: 2.5rem; color: #666; font-family: 'IBM Plex Sans', sans-serif;">
+        <p><strong>Upload your degree audit PDF</strong> (or use Manual Entry), then click <strong>Run Optimizer</strong>.</p>
+        <p>The optimizer finds the fewest BYU courses to complete your remaining GE requirements, with RateMyProfessors ratings.</p>
     </div>
     """, unsafe_allow_html=True)
