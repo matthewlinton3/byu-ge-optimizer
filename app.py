@@ -458,24 +458,34 @@ if run_btn:
 
 # ════════════════════════════════════════════════════════════════
 # STEP 3 — Results (cards, progress tracker, no raw dataframe)
+# Sort runs on session_state.results (already enriched by run_optimizer when
+# RMP not skipped). Use -1 for missing rating and 99 for missing difficulty
+# so courses without RMP data fall to the bottom.
 # ════════════════════════════════════════════════════════════════
+def _rating_for_sort(c):
+    v = c.get("rmp_rating")
+    return v if v is not None else -1
+
+def _difficulty_for_sort(c):
+    v = c.get("rmp_difficulty")
+    return v if v is not None else 99
+
 if st.session_state.results is not None:
     selected = list(st.session_state.results)
     uncovered = st.session_state.uncovered
     already_done = st.session_state.pdf_completed or set()
 
+    num_cats = lambda c: len(c.get("ge_categories", []))
+    # Canonical order: GE categories desc, then RMP rating desc, then difficulty asc.
     if sort_priority == "Best Professor":
-        selected.sort(key=lambda c: -(c.get("rmp_rating") or 0))
+        selected.sort(key=lambda c: (-_rating_for_sort(c), -num_cats(c), _difficulty_for_sort(c)))
     elif sort_priority == "Easiest Classes":
-        selected.sort(key=lambda c: ((c.get("rmp_difficulty") or 0) == 0, c.get("rmp_difficulty") or 99))
+        selected.sort(key=lambda c: (_difficulty_for_sort(c), -_rating_for_sort(c), -num_cats(c)))
     elif sort_priority == "Fewest Classes":
-        selected.sort(key=lambda c: -len(c.get("ge_categories", [])))
+        selected.sort(key=lambda c: (-num_cats(c), -_rating_for_sort(c), _difficulty_for_sort(c)))
     else:
-        selected.sort(key=lambda c: (
-            -len(c.get("ge_categories", [])),
-            -(c.get("rmp_rating") or 0),
-            c.get("rmp_difficulty") or 99,
-        ))
+        # Balanced (default): double-dippers first, then best rating, then easiest.
+        selected.sort(key=lambda c: (-num_cats(c), -_rating_for_sort(c), _difficulty_for_sort(c)))
 
     all_cats = set(GE_CATEGORIES.keys())
     covered_by_optimizer = all_cats - uncovered - already_done
