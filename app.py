@@ -18,37 +18,348 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── Custom CSS ───────────────────────────────────────────────────
+# ── Design System ────────────────────────────────────────────────
+# Palette: Cream #FAFAF8 | Charcoal #1A1A1A | Coral #E8673A
+# Type:    Georgia (headings) + system-ui (body)
 st.markdown("""
 <style>
-    .main-header { text-align: center; padding: 1rem 0 0.5rem 0; }
-    .covered-pill {
-        background: #d4edda; color: #155724;
-        border-radius: 12px; padding: 2px 10px;
-        font-size: 0.82rem; margin: 2px; display: inline-block;
-    }
-    .uncovered-pill {
-        background: #f8d7da; color: #721c24;
-        border-radius: 12px; padding: 2px 10px;
-        font-size: 0.82rem; margin: 2px; display: inline-block;
-    }
-    .already-done-pill {
-        background: #cce5ff; color: #004085;
-        border-radius: 12px; padding: 2px 10px;
-        font-size: 0.82rem; margin: 2px; display: inline-block;
-    }
-    div[data-testid="stMetricValue"] { font-size: 2rem; }
+/* ════════════════════════════════════════════════════════════════
+   Base & Background
+   ════════════════════════════════════════════════════════════════ */
+html, body, .stApp { background-color: #FAFAF8 !important; }
+.main .block-container {
+    background-color: #FAFAF8;
+    padding-top: 1rem;
+    padding-bottom: 4rem;
+    max-width: 1200px;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Typography
+   ════════════════════════════════════════════════════════════════ */
+h1, h2, h3, h4,
+[data-testid="stHeadingWithActionElements"] h1,
+[data-testid="stHeadingWithActionElements"] h2,
+[data-testid="stHeadingWithActionElements"] h3 {
+    font-family: Georgia, 'Times New Roman', 'Book Antiqua', serif !important;
+    color: #1A1A1A !important;
+    font-weight: normal !important;
+    letter-spacing: -0.015em;
+}
+p, li, span, label, .stCaption, [data-testid="stCaptionContainer"] {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Custom Header
+   ════════════════════════════════════════════════════════════════ */
+.ge-header { text-align: center; padding: 1.75rem 0 1.25rem 0; }
+.ge-logo   { margin-bottom: 0.9rem; line-height: 0; }
+.ge-title  {
+    font-family: Georgia, serif !important;
+    font-size: 2.3rem !important;
+    font-weight: normal !important;
+    color: #1A1A1A !important;
+    letter-spacing: -0.03em;
+    margin: 0 0 0.45rem 0 !important;
+    line-height: 1.1 !important;
+}
+.ge-subtitle {
+    font-size: 1rem;
+    color: #6A6A62;
+    max-width: 500px;
+    margin: 0 auto;
+    line-height: 1.65;
+    font-family: system-ui, sans-serif;
+    font-weight: 400;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Sidebar — dark charcoal
+   ════════════════════════════════════════════════════════════════ */
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div,
+[data-testid="stSidebarContent"] {
+    background-color: #1A1A1A !important;
+}
+/* All text inside sidebar inherits light color */
+section[data-testid="stSidebar"] * { color: #C0BFB6 !important; }
+
+/* Headings in sidebar: label-style */
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    font-family: system-ui, sans-serif !important;
+    font-size: 0.68rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #666660 !important;
+    margin-bottom: 0.75rem;
+}
+section[data-testid="stSidebar"] hr { border-color: #2C2C2C !important; }
+section[data-testid="stSidebar"] .stCaption,
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+    color: #505048 !important;
+}
+/* Sidebar toggle: coral when on */
+section[data-testid="stSidebar"] [data-testid="stToggle"] [aria-checked="true"],
+section[data-testid="stSidebar"] [role="switch"][aria-checked="true"] {
+    background-color: #E8673A !important;
+}
+/* Sidebar radio active label */
+section[data-testid="stSidebar"] [data-testid="stRadio"] [data-checked="true"] span,
+section[data-testid="stSidebar"] .stRadio label[data-active="true"] {
+    color: #E8673A !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Buttons
+   ════════════════════════════════════════════════════════════════ */
+/* Primary — coral fill */
+button[data-testid="baseButton-primary"],
+.stFormSubmitButton button {
+    background-color: #E8673A !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-family: system-ui, sans-serif !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.01em;
+    box-shadow: 0 1px 4px rgba(232,103,58,0.28) !important;
+    transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+button[data-testid="baseButton-primary"]:hover,
+.stFormSubmitButton button:hover {
+    background-color: #D45A2F !important;
+    box-shadow: 0 3px 8px rgba(232,103,58,0.36) !important;
+}
+/* Secondary — charcoal outline */
+button[data-testid="baseButton-secondary"],
+.stButton > button,
+.stDownloadButton button {
+    background-color: transparent !important;
+    color: #1A1A1A !important;
+    border: 1.5px solid #D4D3CB !important;
+    border-radius: 8px !important;
+    font-family: system-ui, sans-serif !important;
+    font-weight: 500 !important;
+    transition: all 0.15s ease !important;
+}
+button[data-testid="baseButton-secondary"]:hover,
+.stButton > button:hover,
+.stDownloadButton button:hover {
+    background-color: #1A1A1A !important;
+    color: #FAFAF8 !important;
+    border-color: #1A1A1A !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Tabs
+   ════════════════════════════════════════════════════════════════ */
+.stTabs [data-baseweb="tab-list"] {
+    background-color: transparent !important;
+    border-bottom: 1px solid #E0DFD8 !important;
+    gap: 0 !important;
+}
+.stTabs [data-baseweb="tab"] {
+    background-color: transparent !important;
+    color: #8A8A80 !important;
+    border-bottom: 2px solid transparent !important;
+    font-family: system-ui, sans-serif !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+    padding: 0.6rem 1.1rem !important;
+}
+.stTabs [data-baseweb="tab"]:hover { color: #1A1A1A !important; }
+.stTabs [aria-selected="true"] {
+    color: #1A1A1A !important;
+    border-bottom: 2px solid #E8673A !important;
+    background-color: transparent !important;
+}
+/* Kill default Streamlit tab highlight */
+.stTabs [data-baseweb="tab-highlight"] { background-color: #E8673A !important; }
+
+/* ════════════════════════════════════════════════════════════════
+   Metrics
+   ════════════════════════════════════════════════════════════════ */
+[data-testid="stMetric"] {
+    background-color: white;
+    border: 1px solid #E4E3DC;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+}
+div[data-testid="stMetricValue"] {
+    font-family: Georgia, serif !important;
+    font-size: 1.9rem !important;
+    color: #1A1A1A !important;
+    font-weight: normal !important;
+}
+div[data-testid="stMetricLabel"] {
+    font-size: 0.68rem !important;
+    color: #8A8A80 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-family: system-ui, sans-serif !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Form inputs
+   ════════════════════════════════════════════════════════════════ */
+.stTextInput input, .stTextArea textarea {
+    background-color: white !important;
+    border: 1px solid #E0DFD8 !important;
+    border-radius: 8px !important;
+    color: #1A1A1A !important;
+    font-family: system-ui, sans-serif !important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus {
+    border-color: #E8673A !important;
+    box-shadow: 0 0 0 2px rgba(232,103,58,0.12) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Expanders
+   ════════════════════════════════════════════════════════════════ */
+[data-testid="stExpander"] {
+    border: 1px solid #E4E3DC !important;
+    border-radius: 10px !important;
+    background-color: white !important;
+    overflow: hidden;
+}
+[data-testid="stExpander"] summary {
+    font-family: system-ui, sans-serif !important;
+    font-weight: 500 !important;
+    color: #1A1A1A !important;
+    padding: 0.7rem 1rem !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Cards (st.container with border=True)
+   ════════════════════════════════════════════════════════════════ */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid #E4E3DC !important;
+    border-left: 3px solid #E8673A !important;
+    border-radius: 10px !important;
+    background-color: white !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Alerts
+   ════════════════════════════════════════════════════════════════ */
+[data-testid="stInfo"] {
+    background-color: #FEF6F2 !important;
+    border: 1px solid #F5C9B5 !important;
+    border-radius: 8px !important;
+    color: #7A3520 !important;
+}
+[data-testid="stWarning"] {
+    background-color: #FFFBF0 !important;
+    border: 1px solid #EDD97B !important;
+    border-radius: 8px !important;
+}
+[data-testid="stSuccess"] {
+    background-color: #F0FAF4 !important;
+    border: 1px solid #A8D5B5 !important;
+    border-radius: 8px !important;
+}
+[data-testid="stError"] {
+    background-color: #FFF5F5 !important;
+    border: 1px solid #FFAAAA !important;
+    border-radius: 8px !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Progress bar
+   ════════════════════════════════════════════════════════════════ */
+[data-testid="stProgressBar"] > div {
+    background-color: #E8E7E0 !important;
+    border-radius: 4px !important;
+}
+[data-testid="stProgressBar"] > div > div {
+    background-color: #E8673A !important;
+    border-radius: 4px !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   File uploader
+   ════════════════════════════════════════════════════════════════ */
+[data-testid="stFileUploader"] > div {
+    border: 2px dashed #D0CFC8 !important;
+    border-radius: 10px !important;
+    background-color: white !important;
+}
+[data-testid="stFileUploader"] [data-testid="baseButton-secondary"] {
+    border-color: #E8673A !important;
+    color: #E8673A !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Dataframe & Status
+   ════════════════════════════════════════════════════════════════ */
+[data-testid="stDataFrame"] {
+    border-radius: 10px !important;
+    overflow: hidden !important;
+    border: 1px solid #E4E3DC !important;
+}
+[data-testid="stStatusWidget"] {
+    background-color: white !important;
+    border: 1px solid #E4E3DC !important;
+    border-radius: 10px !important;
+}
+[data-testid="stCode"] {
+    border-radius: 8px !important;
+    border: 1px solid #E4E3DC !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Dividers & Scrollbar
+   ════════════════════════════════════════════════════════════════ */
+hr { border-color: #E4E3DC !important; margin: 1.5rem 0 !important; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: #F0EFE9; }
+::-webkit-scrollbar-thumb { background: #C8C7C0; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #E8673A; }
+
+/* ════════════════════════════════════════════════════════════════
+   Semantic Pills
+   ════════════════════════════════════════════════════════════════ */
+.covered-pill {
+    background: #E8F5EE; color: #1B6B3A;
+    border-radius: 6px; padding: 3px 10px;
+    font-size: 0.8rem; font-weight: 500; margin: 2px;
+    display: inline-block;
+    font-family: system-ui, sans-serif;
+}
+.uncovered-pill {
+    background: #FDE8E4; color: #B33000;
+    border-radius: 6px; padding: 3px 10px;
+    font-size: 0.8rem; font-weight: 500; margin: 2px;
+    display: inline-block;
+    font-family: system-ui, sans-serif;
+}
+.already-done-pill {
+    background: #F0EFE9; color: #4A4A42;
+    border-radius: 6px; padding: 3px 10px;
+    font-size: 0.8rem; font-weight: 500; margin: 2px;
+    display: inline-block;
+    font-family: system-ui, sans-serif;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ── Header ───────────────────────────────────────────────────────
+# ── Header — geometric SVG logo + serif title ─────────────────────
 st.markdown("""
-<div class="main-header">
-    <h1>🎓 BYU GE Optimizer</h1>
-    <p style="color: #666; font-size: 1.1rem;">
-        Upload your MyMap degree audit to skip completed GEs —
-        then find the <strong>fewest remaining courses</strong> sorted by RMP ratings.
-    </p>
+<div class="ge-header">
+    <div class="ge-logo">
+        <svg width="60" height="42" viewBox="0 0 60 42" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="20" cy="21" r="18" fill="#E8673A" opacity="0.93"/>
+            <circle cx="40" cy="21" r="18" fill="#1A1A1A" opacity="0.88"/>
+        </svg>
+    </div>
+    <div class="ge-title">BYU GE Optimizer</div>
+    <p class="ge-subtitle">Find the minimum courses to finish your General Education requirements, ranked by professor quality.</p>
 </div>
 """, unsafe_allow_html=True)
 st.divider()
@@ -303,30 +614,30 @@ st.divider()
 st.markdown("## Step 2 — Run the Optimizer")
 
 with st.sidebar:
-    st.title("⚙️ Options")
-    use_ilp  = st.toggle("Use ILP Optimization", value=True,
+    st.markdown("### Optimizer")
+    use_ilp  = st.toggle("ILP Optimization", value=True,
                          help="Finds the true minimum number of courses. Greedy is faster but not always optimal.")
     skip_rmp = st.toggle("Skip RMP Ratings", value=False,
                          help="Skip RateMyProfessors lookup (faster, but no professor data)")
-    refresh  = st.toggle("Refresh Data", value=False,
+    refresh  = st.toggle("Refresh Catalog", value=False,
                          help="Re-scrape BYU catalog. Slow — only use if data seems outdated.")
     st.divider()
+    st.markdown("### Sort Priority")
     sort_priority = st.radio(
-        "🏆 Sort Priority",
+        "",
         options=["Balanced", "Fewest Classes", "Best Professor", "Easiest Classes"],
         index=0,
+        label_visibility="collapsed",
         help=(
-            "**Balanced** — Prioritise double-dippers first, then highest RMP rating, "
-            "then lowest difficulty.\n\n"
+            "**Balanced** — Double-dippers first, then highest RMP rating, then lowest difficulty.\n\n"
             "**Fewest Classes** — Maximise GE categories covered per course.\n\n"
-            "**Best Professor** — Sort by highest RMP overall rating.\n\n"
-            "**Easiest Classes** — Sort by lowest RMP difficulty score "
-            "(courses with no rating data appear last)."
+            "**Best Professor** — Highest RMP overall rating.\n\n"
+            "**Easiest Classes** — Lowest RMP difficulty score."
         ),
     )
     st.divider()
-    st.caption("Built with Python · PuLP · Streamlit")
-    st.caption("Data: BYU Catalog · RateMyProfessors")
+    st.caption("Python · PuLP · Streamlit")
+    st.caption("BYU Catalog · RateMyProfessors")
 
 with st.expander("🔍 Debug: What the Optimizer Will See", expanded=False):
     _completed  = st.session_state.pdf_completed or set()
@@ -504,23 +815,22 @@ if st.session_state.results is not None:
         df = pd.DataFrame(rows)
 
         def color_rating(val):
-            if pd.isna(val):  return "color: gray; font-style: italic"
-            if val >= 4.0:    return "color: green; font-weight: bold"
-            if val >= 3.0:    return "color: orange"
-            return "color: red"
+            if pd.isna(val):  return "color: #B0AFA8; font-style: italic"
+            if val >= 4.0:    return "color: #1B6B3A; font-weight: 600"
+            if val >= 3.0:    return "color: #8A5A00"
+            return "color: #B33000"
 
         def color_difficulty(val):
-            if pd.isna(val):  return "color: gray; font-style: italic"
-            if val <= 2.5:    return "color: green"
-            if val <= 3.5:    return "color: orange"
-            return "color: red; font-weight: bold"
+            if pd.isna(val):  return "color: #B0AFA8; font-style: italic"
+            if val <= 2.5:    return "color: #1B6B3A"
+            if val <= 3.5:    return "color: #8A5A00"
+            return "color: #B33000; font-weight: 600"
 
         max_cats = int(df["# Categories"].max()) if not df.empty else 0
 
         def highlight_cat_count(val):
-            # Only highlight when there's actually a course covering 2+ categories
             if max_cats > 1 and val == max_cats:
-                return "background-color: #fff3cd; font-weight: bold"
+                return "background-color: #FEF3EC; color: #B33000; font-weight: 600"
             return ""
 
         styled = (
