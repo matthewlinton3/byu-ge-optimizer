@@ -2,6 +2,9 @@
 BYU GE Optimizer — Streamlit Web App
 """
 
+import base64
+import time
+
 import streamlit as st
 import pandas as pd
 from scraper import scrape_catalog_for_ge, GE_CATEGORIES, init_db
@@ -11,11 +14,23 @@ from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from pathways import get_remaining_requirements, PATHWAYS
 from mymap_scraper import login_and_scrape, format_debug_report
 try:
-    from mymap_browser_login import browser_login_and_scrape, HAS_SELENIUM
-except ImportError:
+    from mymap_browser_login import (
+        browser_login_and_scrape,
+        HAS_SELENIUM,
+        IS_RAILWAY,
+        create_driver,
+        navigate_to_login,
+        fill_cas_credentials,
+        detect_login_state,
+        take_screenshot_base64,
+        scrape_from_driver,
+    )
+except Exception:
+    import os as _os
     HAS_SELENIUM = False
+    IS_RAILWAY   = bool(_os.environ.get("RAILWAY_ENVIRONMENT"))
     def browser_login_and_scrape(**_):
-        return {"success": False, "error": "selenium not installed"}
+        return {"success": False, "error": "Browser login unavailable", "debug": {}}
 
 # ── Page config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -386,6 +401,11 @@ for key, default in [
     ("mymap_debug_report", None),   # formatted debug text
     ("mymap_login_error", None),
     ("data_source", None),          # "mymap" | "pdf" | "manual"
+    # Railway headless login phases
+    ("railway_login_phase", "idle"),   # "idle"|"login_form"|"duo"
+    ("railway_screenshot", None),      # base64 PNG of current browser view
+    # Note: railway_driver (WebDriver instance) is NOT pre-initialized here
+    # because it cannot be default-constructed. Use st.session_state.get().
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -408,6 +428,19 @@ st.info(
 input_tab1, input_tab2, input_tab3 = st.tabs(
     ["🔑 Log in to MyMap (Recommended)", "📄 Upload PDF", "✏️ Manual Entry"]
 )
+
+# ── Shared helper: clean up Railway headless driver ───────────────────────────
+def _cleanup_railway_session():
+    """Quit any open Railway headless driver and reset session state."""
+    driver = st.session_state.pop("railway_driver", None)
+    if driver is not None:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+    st.session_state.railway_login_phase = "idle"
+    st.session_state.railway_screenshot  = None
+
 
 # ── Shared helper: process a MyMap scrape result into session state ──────────
 def _apply_mymap_result(scrape_result: dict):
@@ -454,64 +487,233 @@ def _apply_mymap_result(scrape_result: dict):
 # ── Tab 1: MyMap Login ────────────────────────────────────────────
 with input_tab1:
 
-    # ── Primary: Browser Login ────────────────────────────────────
-    st.markdown("### Open a Browser Window to Log In")
-    st.caption(
-        "Click the button below. A Chrome window will open pointing to mymap.byu.edu. "
-        "Log in normally — including Duo 2FA — then return to this tab. "
-        "The app will automatically capture your session and import your degree audit. "
-        "**Your credentials never pass through this app.**"
-    )
+    if IS_RAILWAY:
+        # ══════════════════════════════════════════════════════════════════
+        # RAILWAY MODE — Headless Chrome with visual step-by-step Streamlit UI
+        # ══════════════════════════════════════════════════════════════════
+        phase = st.session_state.get("railway_login_phase", "idle")
 
-    if not HAS_SELENIUM:
-        st.warning(
-            "⚠️ Browser login requires `selenium` and `webdriver-manager` "
-            "(run `pip install selenium webdriver-manager`). "
-            "Use the direct login or PDF/Manual tab below."
-        )
+        # Stale driver cleanup on session reset
+        if phase == "idle" and st.session_state.get("railway_driver") is not None:
+            try:
+                st.session_state.railway_driver.quit()
+            except Exception:
+                pass
+            del st.session_state["railway_driver"]
+
+        # ── Phase: idle — start button ────────────────────────────────
+        if phase == "idle":
+            st.markdown("### Log In to MyMap")
+            st.caption(
+                "Click below to open a secure headless browser session. "
+                "You can enter your credentials and complete Duo 2FA entirely within this page."
+            )
+            if st.button("🌐 Start Secure Browser Login", type="primary", key="railway_start_btn"):
+                st.session_state.mymap_scrape_result = None
+                st.session_state.mymap_debug_report  = None
+                with st.spinner("Opening secure browser and loading BYU login page..."):
+                    try:
+                        _driver = create_driver(headless=True)
+                        _shot   = navigate_to_login(_driver)
+                        st.session_state.railway_driver      = _driver
+                        st.session_state.railway_screenshot  = _shot
+                        st.session_state.railway_login_phase = "login_form"
+                    except Exception as _e:
+                        st.error(f"❌ Failed to launch browser: {_e}")
+                        st.stop()
+                st.rerun()
+
+        # ── Phase: login_form — show screenshot + credential form ─────
+        elif phase == "login_form":
+            st.markdown("### Enter Your BYU Credentials")
+            st.caption(
+                "The browser has loaded the BYU login page (shown below). "
+                "Enter your NetID and password — the app will fill them in for you."
+            )
+            _shot = st.session_state.get("railway_screenshot", "")
+            if _shot:
+                st.markdown(
+                    f'<img src="data:image/png;base64,{_shot}" '
+                    f'style="width:100%;border-radius:8px;border:1px solid #E4E3DC;margin-bottom:1rem;" />',
+                    unsafe_allow_html=True,
+                )
+                st.caption("↑ Current browser view — BYU CAS Login Page")
+
+            with st.form("railway_creds_form"):
+                _netid    = st.text_input("BYU NetID", placeholder="e.g. jsmith123")
+                _password = st.text_input("BYU Password", type="password")
+                _submit   = st.form_submit_button("🔑 Fill In & Log In", type="primary")
+
+            if st.button("✕ Cancel", key="railway_cancel_creds"):
+                _cleanup_railway_session()
+                st.rerun()
+
+            if _submit:
+                if not _netid or not _password:
+                    st.error("Please enter both your NetID and password.")
+                else:
+                    _driver = st.session_state.get("railway_driver")
+                    if not _driver:
+                        st.error("Browser session lost — please restart.")
+                        st.session_state.railway_login_phase = "idle"
+                        st.rerun()
+
+                    with st.spinner("Filling credentials and logging in..."):
+                        try:
+                            fill_cas_credentials(_driver, _netid, _password)
+                        except Exception as _e:
+                            st.error(f"❌ Could not fill credentials: {_e}")
+                            _cleanup_railway_session()
+                            st.stop()
+
+                    _state = detect_login_state(_driver)
+                    _shot  = take_screenshot_base64(_driver)
+                    st.session_state.railway_screenshot = _shot
+
+                    if _state == "logged_in":
+                        with st.spinner("Session captured — scraping degree audit..."):
+                            _result = scrape_from_driver(_driver)
+                        _cleanup_railway_session()
+                        _apply_mymap_result(_result)
+
+                    elif _state == "duo":
+                        st.session_state.railway_login_phase = "duo"
+                        st.rerun()
+
+                    else:
+                        st.error(
+                            f"Login failed or unexpected page (detected: **{_state}**).  \n"
+                            "Please check your credentials and try again."
+                        )
+                        st.session_state.railway_login_phase = "login_form"
+                        st.rerun()
+
+        # ── Phase: duo — show Duo screenshot + approval flow ──────────
+        elif phase == "duo":
+            st.markdown("### Duo 2FA — Approve on Your Phone")
+            st.caption(
+                "The browser reached the Duo authentication step (shown below). "
+                "Check your phone for a push notification and approve it, then click **Continue** here."
+            )
+            _shot = st.session_state.get("railway_screenshot", "")
+            if _shot:
+                st.markdown(
+                    f'<img src="data:image/png;base64,{_shot}" '
+                    f'style="width:100%;border-radius:8px;border:1px solid #E4E3DC;margin-bottom:1rem;" />',
+                    unsafe_allow_html=True,
+                )
+                st.caption("↑ Current browser view — Duo 2FA")
+
+            st.info(
+                "📱 **Check your phone** for a Duo push notification and approve it, "
+                "then click **Continue** below."
+            )
+
+            _duo_c1, _duo_c2, _duo_c3 = st.columns([3, 2, 1])
+
+            with _duo_c1:
+                if st.button("✅ I've approved — Continue", type="primary", key="railway_duo_continue"):
+                    _driver = st.session_state.get("railway_driver")
+                    if not _driver:
+                        st.error("Browser session lost — please restart.")
+                        _cleanup_railway_session()
+                        st.rerun()
+
+                    with st.spinner("Checking login status..."):
+                        time.sleep(2)
+                        _state = detect_login_state(_driver)
+                        _shot  = take_screenshot_base64(_driver)
+                    st.session_state.railway_screenshot = _shot
+
+                    if _state == "logged_in":
+                        with st.spinner("Session captured — scraping degree audit..."):
+                            _result = scrape_from_driver(_driver)
+                        _cleanup_railway_session()
+                        _apply_mymap_result(_result)
+                    else:
+                        st.warning(
+                            "Duo approval not yet detected. "
+                            "Please approve on your phone, then click Continue again."
+                        )
+                        st.rerun()
+
+            with _duo_c2:
+                if st.button("🔄 Refresh Screenshot", key="railway_duo_refresh"):
+                    _driver = st.session_state.get("railway_driver")
+                    if _driver:
+                        st.session_state.railway_screenshot = take_screenshot_base64(_driver)
+                    st.rerun()
+
+            with _duo_c3:
+                if st.button("✕ Cancel", key="railway_duo_cancel"):
+                    _cleanup_railway_session()
+                    st.rerun()
+
     else:
-        if st.button("🌐 Open Browser & Log In to MyMap", type="primary", key="browser_login_btn"):
-            st.session_state.mymap_scrape_result = None
-            st.session_state.mymap_debug_report  = None
-            st.session_state.mymap_login_error   = None
+        # ══════════════════════════════════════════════════════════════════
+        # LOCAL MODE — Visible browser window the user interacts with
+        # ══════════════════════════════════════════════════════════════════
 
-            with st.spinner(
-                "🌐 Browser window is open — log in to MyMap (including Duo 2FA), "
-                "then return here. Waiting up to 3 minutes..."
-            ):
-                scrape_result = browser_login_and_scrape(timeout_seconds=180)
-
-            _apply_mymap_result(scrape_result)
-
-    st.divider()
-
-    # ── Fallback: Direct Credential Login ─────────────────────────
-    with st.expander("Or log in directly (no browser required — Duo 2FA not supported)", expanded=not HAS_SELENIUM):
+        # ── Primary: Open a real Chrome window ───────────────────────────
+        st.markdown("### Open a Browser Window to Log In")
         st.caption(
-            "Enter your BYU credentials directly. The app submits them to BYU's CAS login "
-            "server on your behalf. **Cannot complete Duo 2FA** — if you have 2FA enabled, "
-            "use the browser login above."
+            "Click below. A Chrome window will open pointing to mymap.byu.edu. "
+            "Log in normally — including Duo 2FA — then return to this tab. "
+            "The app automatically captures your session. "
+            "**Your credentials never pass through this app.**"
         )
 
-        with st.form("mymap_login_form"):
-            netid_input    = st.text_input("BYU NetID", placeholder="e.g. jsmith123")
-            password_input = st.text_input("BYU Password", type="password")
-            login_btn      = st.form_submit_button("🔑 Log in & Import Degree Audit", type="primary")
-
-        if login_btn:
-            if not netid_input or not password_input:
-                st.error("Please enter both your NetID and password.")
-            else:
+        if not HAS_SELENIUM:
+            st.warning(
+                "⚠️ Browser login requires `selenium` and `webdriver-manager`. "
+                "Run: `pip install selenium webdriver-manager`  \n"
+                "Or use the direct login or PDF/Manual tab below."
+            )
+        else:
+            if st.button("🌐 Open Browser & Log In to MyMap", type="primary", key="browser_login_btn"):
                 st.session_state.mymap_scrape_result = None
                 st.session_state.mymap_debug_report  = None
                 st.session_state.mymap_login_error   = None
 
-                with st.spinner("🔐 Logging into MyMap and scraping your degree audit..."):
-                    scrape_result = login_and_scrape(netid_input, password_input)
+                with st.spinner(
+                    "🌐 Browser window open — log in (including Duo 2FA), "
+                    "then return here. Waiting up to 3 minutes..."
+                ):
+                    scrape_result = browser_login_and_scrape(timeout_seconds=180)
 
                 _apply_mymap_result(scrape_result)
 
-    # ── Debug output (always shown after any scrape attempt) ──────
+        st.divider()
+
+        # ── Fallback: Direct credential POST ─────────────────────────────
+        with st.expander(
+            "Or log in directly (no browser — Duo 2FA not supported)",
+            expanded=not HAS_SELENIUM,
+        ):
+            st.caption(
+                "Submits credentials directly to BYU's CAS server. "
+                "**Cannot complete Duo 2FA** — use the browser option above if you have 2FA enabled."
+            )
+
+            with st.form("mymap_login_form"):
+                netid_input    = st.text_input("BYU NetID", placeholder="e.g. jsmith123")
+                password_input = st.text_input("BYU Password", type="password")
+                login_btn      = st.form_submit_button("🔑 Log in & Import", type="primary")
+
+            if login_btn:
+                if not netid_input or not password_input:
+                    st.error("Please enter both your NetID and password.")
+                else:
+                    st.session_state.mymap_scrape_result = None
+                    st.session_state.mymap_debug_report  = None
+                    st.session_state.mymap_login_error   = None
+
+                    with st.spinner("🔐 Logging into MyMap and scraping degree audit..."):
+                        scrape_result = login_and_scrape(netid_input, password_input)
+
+                    _apply_mymap_result(scrape_result)
+
+    # ── Debug output (shown after any successful scrape, both modes) ──────────
     if st.session_state.mymap_debug_report:
         result = st.session_state.mymap_scrape_result
         with st.expander("🔍 Full Debug Output — Verify Accuracy Before Optimizing", expanded=True):
