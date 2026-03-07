@@ -3,3 +3,5 @@ beautifulsoup4
 PuLP
 rich
 lxml
+streamlit
+pandas
