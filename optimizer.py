@@ -149,12 +149,14 @@ def optimize(courses, use_ilp=True, remaining_requirements=None, courses_taken=N
     # ── 2. Prune course catalog to remaining categories only ──────
     # Strip already-done categories from each course's tag list so the ILP
     # doesn't over-value a double-dipper whose second category is already done.
+    # We preserve the full original list as ge_categories_all for display.
     remaining_cat_set = set(requirements.keys())
     ge_courses = []
     for c in courses:
         cats = [cat for cat in c.get("ge_categories", []) if cat in remaining_cat_set]
         if cats:
             pruned = dict(c)
+            pruned["ge_categories_all"] = c.get("ge_categories", [])  # full original list
             pruned["ge_categories"] = cats
             ge_courses.append(pruned)
 

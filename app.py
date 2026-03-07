@@ -9,6 +9,7 @@ from optimizer import optimize
 from rmp import enrich_with_rmp
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from pathways import get_remaining_requirements, PATHWAYS
+from mymap_scraper import login_and_scrape, format_debug_report
 
 # ── Page config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -62,156 +63,236 @@ for key, default in [
     ("pdf_confidence", None),
     ("manual_override", False),
     ("manual_completed", set()),
-    ("courses_taken", set()),       # individual course codes parsed from PDF
+    ("courses_taken", set()),       # individual course codes parsed from PDF or MyMap
     ("pathway_state", None),        # output of get_remaining_requirements()
+    ("mymap_scrape_result", None),  # raw result dict from mymap_scraper
+    ("mymap_debug_report", None),   # formatted debug text
+    ("mymap_login_error", None),
+    ("data_source", None),          # "mymap" | "pdf" | "manual"
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
 
 
 # ════════════════════════════════════════════════════════════════
-# STEP 1 — Degree Audit Upload
+# STEP 1 — Import Degree Audit from MyMap
 # ════════════════════════════════════════════════════════════════
-st.markdown("## Step 1 — Upload Your Degree Audit (Optional)")
-st.caption("Upload your BYU MyMap PDF to automatically skip GE requirements you've already completed.")
+st.markdown("## Step 1 — Import Your Degree Audit")
 
-upload_col, info_col = st.columns([2, 1])
+# ── Privacy notice (always visible) ──────────────────────────────
+st.info(
+    "🔒 **Privacy Notice** — Your NetID and password are used **only** to log into "
+    "mymap.byu.edu on your behalf during this session. They are held in memory "
+    "for the duration of the login request only, are **never stored, logged, or "
+    "written to disk**, and are discarded immediately after authentication. "
+    "This app has no database and does not transmit your credentials anywhere "
+    "other than BYU's own servers."
+)
 
-with upload_col:
+# ── Tabs: MyMap Login | PDF Upload | Manual ──────────────────────
+input_tab1, input_tab2, input_tab3 = st.tabs(
+    ["🔑 Log in to MyMap (Recommended)", "📄 Upload PDF", "✏️ Manual Entry"]
+)
+
+# ── Tab 1: MyMap Login ────────────────────────────────────────────
+with input_tab1:
+    st.markdown("### Log in with Your BYU NetID")
+    st.caption(
+        "The app will log into MyMap on your behalf, scrape your personal degree audit "
+        "in real time, and show you the full debug output so you can verify accuracy "
+        "before running the optimizer."
+    )
+
+    with st.form("mymap_login_form"):
+        netid_input    = st.text_input("BYU NetID", placeholder="e.g. jsmith123")
+        password_input = st.text_input("BYU Password", type="password")
+        login_btn      = st.form_submit_button("🔑 Log in & Import Degree Audit", type="primary")
+
+    if login_btn:
+        if not netid_input or not password_input:
+            st.error("Please enter both your NetID and password.")
+        else:
+            st.session_state.mymap_scrape_result = None
+            st.session_state.mymap_debug_report  = None
+            st.session_state.mymap_login_error   = None
+
+            with st.spinner("🔐 Logging into MyMap and scraping your degree audit..."):
+                scrape_result = login_and_scrape(netid_input, password_input)
+                # Credentials are now out of scope; scrape_result has no credentials in it
+
+            debug_report = format_debug_report(scrape_result)
+            st.session_state.mymap_scrape_result = scrape_result
+            st.session_state.mymap_debug_report  = debug_report
+
+            if scrape_result["success"]:
+                completed     = scrape_result["ge_completed"]
+                remaining     = scrape_result["ge_remaining"]
+                courses_taken = scrape_result["completed_courses"] | scrape_result["in_progress_courses"]
+
+                st.session_state.pdf_completed   = completed
+                st.session_state.pdf_remaining   = remaining or (set(GE_CATEGORIES.keys()) - completed)
+                st.session_state.courses_taken   = courses_taken
+                st.session_state.manual_override = False
+                st.session_state.data_source     = "mymap"
+
+                if courses_taken:
+                    pathway_state = get_remaining_requirements(courses_taken, completed)
+                    st.session_state.pathway_state = pathway_state
+
+                st.success(
+                    f"✅ MyMap imported successfully! "
+                    f"Found **{len(completed)}** completed GE categories "
+                    f"and **{len(courses_taken)}** individual courses."
+                )
+            else:
+                st.session_state.mymap_login_error = scrape_result.get("error")
+                debug = scrape_result.get("debug", {})
+                if debug.get("duo_detected"):
+                    st.error(
+                        "⚠️ **Duo 2FA Detected** — Automated login can't complete multi-factor "
+                        "authentication. Please use the **Upload PDF** or **Manual Entry** tab instead."
+                    )
+                else:
+                    st.error(
+                        f"❌ Login or scraping failed: {scrape_result.get('error', 'Unknown error')}  \n"
+                        "Please check your NetID/password, or use the PDF/Manual tab."
+                    )
+
+    # ── Debug output (always shown after a scrape attempt) ────────
+    if st.session_state.mymap_debug_report:
+        result = st.session_state.mymap_scrape_result
+        with st.expander("🔍 Full Debug Output — Verify Accuracy Before Optimizing", expanded=True):
+            st.caption(
+                "Review everything the scraper found below. "
+                "If any GE category status looks wrong, switch to the **Manual Entry** tab to correct it."
+            )
+            st.code(st.session_state.mymap_debug_report, language=None)
+
+        # Show structured summary even if debug is expanded
+        if result and result.get("raw_requirements"):
+            st.markdown("#### 📋 Detected GE Status")
+            req_col1, req_col2 = st.columns(2)
+            items = list(result["raw_requirements"].items())
+            for i, (cat, info) in enumerate(items):
+                col = req_col1 if i % 2 == 0 else req_col2
+                icon = {"completed": "✅", "in_progress": "🔄", "remaining": "❌"}.get(
+                    info["status"], "❓"
+                )
+                col.markdown(f"{icon} **{cat}** — _{info['status']}_")
+
+# ── Tab 2: PDF Upload ─────────────────────────────────────────────
+with input_tab2:
+    st.markdown("### Upload a BYU MyMap Degree Audit PDF")
+    st.caption("Export your degree audit from MyMap as a PDF and upload it here.")
+
+    with st.expander("❓ How do I export the PDF?"):
+        st.markdown("""
+**Step 1** — Go to [mymap.byu.edu](https://mymap.byu.edu) and log in.
+
+**Step 2** — Click **Degree Audit** or **Academic Plan** from the dashboard.
+
+**Step 3** — Click **Print** or **Export**, change destination to **Save as PDF**, click Save.
+
+**Step 4** — Upload the saved PDF below.
+
+---
+🔒 Your PDF is processed locally and never stored or shared.
+        """)
+
     uploaded_pdf = st.file_uploader(
         "Upload BYU MyMap Degree Audit PDF",
         type=["pdf"],
         help="Download from MyMap → Degree Audit → Save as PDF"
     )
-    with st.expander("❓ How do I get this PDF?"):
-        st.markdown("""
-**Step 1** — Go to [mymap.byu.edu](https://mymap.byu.edu) and log in with your **NetID**.
 
-**Step 2** — Click on your **Degree Audit** or **Academic Plan** from the dashboard.
-
-**Step 3** — Look for a **Print** or **Export** button in the top-right corner of the audit page.
-
-**Step 4** — When the print dialog opens, change the destination to **"Save as PDF"** and click Save.
-
-**Step 5** — Upload that PDF file using the button above.
-
----
-🔒 **Your privacy is protected.** Your PDF is processed locally and is never stored, uploaded to a server, or shared with anyone.
-        """)
-
-with info_col:
-    st.info(
-        "**Tip:** The degree audit shows which GE requirements you've already "
-        "satisfied so the optimizer only recommends courses you actually still need."
-    )
-
-# ── Parse uploaded PDF ───────────────────────────────────────────
-if uploaded_pdf is not None:
-    if not HAS_PDFPLUMBER:
-        st.error("⚠️ pdfplumber is not installed on this server. Please use manual selection below.")
-        st.session_state.manual_override = True
-    else:
-        with st.spinner("📄 Parsing your degree audit PDF..."):
-            parse_result = parse_degree_audit(uploaded_pdf)
-
-        if parse_result["error"]:
-            st.warning(f"⚠️ Could not fully parse PDF: {parse_result['error']}")
-            st.session_state.pdf_parse_error = parse_result["error"]
+    if uploaded_pdf is not None:
+        if not HAS_PDFPLUMBER:
+            st.error("⚠️ pdfplumber is not installed. Please use Manual Entry instead.")
             st.session_state.manual_override = True
-
-        elif parse_result["parse_confidence"] == "low":
-            st.warning(
-                "⚠️ Your PDF was read but doesn't look like a standard BYU MyMap degree audit "
-                "(low confidence). Please verify the results below or use manual selection."
-            )
-            st.session_state.pdf_completed   = parse_result["completed"]
-            st.session_state.pdf_remaining   = parse_result["remaining"]
-            st.session_state.pdf_confidence  = parse_result["parse_confidence"]
-            st.session_state.manual_override = True
-
         else:
-            st.session_state.pdf_completed   = parse_result["completed"]
-            st.session_state.pdf_remaining   = parse_result["remaining"]
-            st.session_state.pdf_confidence  = parse_result["parse_confidence"]
-            st.session_state.manual_override = False
+            with st.spinner("📄 Parsing PDF..."):
+                parse_result = parse_degree_audit(uploaded_pdf)
 
-            # Store individual courses taken for pathway-aware optimization
-            courses_taken = parse_result.get("courses_taken", set())
-            st.session_state.courses_taken = courses_taken
+            if parse_result["error"]:
+                st.warning(f"⚠️ Could not fully parse PDF: {parse_result['error']}")
+                st.session_state.manual_override = True
 
-            # Run pathway analysis to detect partial completions
-            if courses_taken:
-                pathway_state = get_remaining_requirements(
-                    courses_taken, parse_result["completed"]
+            elif parse_result["parse_confidence"] == "low":
+                st.warning("⚠️ Low confidence parse — please verify below or use Manual Entry.")
+                st.session_state.pdf_completed   = parse_result["completed"]
+                st.session_state.pdf_remaining   = parse_result["remaining"]
+                st.session_state.manual_override = True
+
+            else:
+                completed     = parse_result["completed"]
+                courses_taken = parse_result.get("courses_taken", set())
+                st.session_state.pdf_completed   = completed
+                st.session_state.pdf_remaining   = parse_result["remaining"]
+                st.session_state.pdf_confidence  = parse_result["parse_confidence"]
+                st.session_state.courses_taken   = courses_taken
+                st.session_state.manual_override = False
+                st.session_state.data_source     = "pdf"
+
+                if courses_taken:
+                    st.session_state.pathway_state = get_remaining_requirements(courses_taken, completed)
+
+                st.success(
+                    f"✅ PDF parsed ({parse_result['parse_confidence']} confidence). "
+                    f"Found **{len(completed)}** completed categories"
+                    + (f" and **{len(courses_taken)}** individual courses." if courses_taken else ".")
                 )
-                st.session_state.pathway_state = pathway_state
 
-            st.success(
-                f"✅ PDF parsed successfully "
-                f"({'high' if parse_result['parse_confidence'] == 'high' else 'medium'} confidence). "
-                f"Found **{len(parse_result['completed'])}** completed GE categories"
-                + (f" and **{len(courses_taken)}** individual courses." if courses_taken else ".")
-            )
-
-# ── PDF results summary ──────────────────────────────────────────
-if st.session_state.pdf_completed is not None and not st.session_state.manual_override:
-    completed_from_pdf = st.session_state.pdf_completed
-    remaining_from_pdf = st.session_state.pdf_remaining
-
-    st.markdown("### 📋 Degree Audit Summary")
-    sum_col1, sum_col2 = st.columns(2)
-
-    with sum_col1:
-        st.markdown("**✅ Already Completed:**")
-        if completed_from_pdf:
-            for cat in sorted(completed_from_pdf):
+    # Show PDF summary if available and this is the active data source
+    if (
+        st.session_state.pdf_completed is not None
+        and not st.session_state.manual_override
+        and st.session_state.data_source == "pdf"
+    ):
+        sum_col1, sum_col2 = st.columns(2)
+        with sum_col1:
+            st.markdown("**✅ Completed:**")
+            for cat in sorted(st.session_state.pdf_completed):
                 st.markdown(f'<span class="already-done-pill">✓ {cat}</span>', unsafe_allow_html=True)
-        else:
-            st.caption("None detected as complete")
-
-    with sum_col2:
-        st.markdown("**📌 Still Needed:**")
-        if remaining_from_pdf:
-            for cat in sorted(remaining_from_pdf):
+        with sum_col2:
+            st.markdown("**📌 Remaining:**")
+            for cat in sorted(st.session_state.pdf_remaining or []):
                 st.markdown(f'<span class="uncovered-pill">→ {cat}</span>', unsafe_allow_html=True)
-        else:
-            st.success("🎉 All GE requirements appear to be complete!")
 
-    st.divider()
+# ── Tab 3: Manual Entry ───────────────────────────────────────────
+with input_tab3:
+    st.markdown("### Manually Select Completed GE Categories")
+    st.caption("Check off every GE requirement you've already completed:")
 
-# ── Manual fallback / override ────────────────────────────────────
-show_manual = (
-    st.session_state.manual_override or
-    uploaded_pdf is None or
-    st.checkbox("✏️ Manually adjust detected completions", value=False)
-)
-
-if show_manual:
-    if st.session_state.manual_override and uploaded_pdf is not None:
-        st.markdown("### ✏️ Manual GE Selection (fallback)")
-        st.caption("The PDF could not be reliably parsed. Please check off the GE categories you've already completed:")
-    else:
-        st.markdown("### ✏️ Manually Select Completed GEs")
-        st.caption("Check any GE requirements you've already completed:")
-
-    all_cats       = sorted(GE_CATEGORIES.keys())
+    all_cats        = sorted(GE_CATEGORIES.keys())
     default_checked = sorted(st.session_state.pdf_completed or st.session_state.manual_completed)
 
-    manual_cols    = st.columns(2)
+    manual_cols     = st.columns(2)
     manual_selected = set()
     for i, cat in enumerate(all_cats):
         col     = manual_cols[i % 2]
         already = cat in default_checked
-        checked = col.checkbox(cat, value=already, key=f"manual_{cat}")
-        if checked:
+        if col.checkbox(cat, value=already, key=f"manual_{cat}"):
             manual_selected.add(cat)
 
-    st.session_state.manual_completed = manual_selected
-    st.session_state.pdf_completed    = manual_selected
-    st.session_state.pdf_remaining    = set(GE_CATEGORIES.keys()) - manual_selected
+    if st.button("Apply Manual Selection"):
+        st.session_state.manual_completed = manual_selected
+        st.session_state.pdf_completed    = manual_selected
+        st.session_state.pdf_remaining    = set(GE_CATEGORIES.keys()) - manual_selected
+        st.session_state.data_source      = "manual"
+        st.session_state.manual_override  = False
+        remaining_count = len(st.session_state.pdf_remaining)
+        st.success(
+            f"**{len(manual_selected)}** categories marked complete → "
+            f"optimizing for **{remaining_count}** remaining."
+        )
 
-    remaining_count = len(st.session_state.pdf_remaining)
-    st.info(f"**{len(manual_selected)}** categories marked complete → optimizing for **{remaining_count}** remaining.")
+# ── Global fallback notice ────────────────────────────────────────
+if st.session_state.manual_override:
+    st.warning(
+        "⚠️ The automatic import couldn't fully determine your completions. "
+        "Please use the **Manual Entry** tab to select what you've completed, "
+        "then run the optimizer."
+    )
 
 st.divider()
 
@@ -246,6 +327,37 @@ with st.sidebar:
     st.divider()
     st.caption("Built with Python · PuLP · Streamlit")
     st.caption("Data: BYU Catalog · RateMyProfessors")
+
+with st.expander("🔍 Debug: What the Optimizer Will See", expanded=False):
+    _completed  = st.session_state.pdf_completed or set()
+    _remaining  = st.session_state.pdf_remaining or set(GE_CATEGORIES.keys())
+    _taken      = st.session_state.courses_taken or set()
+    _debug_cols = st.columns(3)
+    with _debug_cols[0]:
+        st.markdown("**✅ Completed (skipped):**")
+        if _completed:
+            for _c in sorted(_completed):
+                st.caption(f"✓ {_c}")
+        else:
+            st.caption("None — optimizing all 13 categories")
+    with _debug_cols[1]:
+        st.markdown("**📌 Remaining (optimizer targets):**")
+        for _c in sorted(_remaining):
+            st.caption(f"→ {_c}")
+    with _debug_cols[2]:
+        st.markdown("**📚 Individual courses taken:**")
+        if _taken:
+            for _c in sorted(_taken):
+                st.caption(f"· {_c}")
+        else:
+            st.caption("None detected")
+    st.caption(
+        f"Source: **{st.session_state.data_source or 'none selected'}** · "
+        f"{len(_completed)} completed · {len(_remaining)} remaining · "
+        f"{len(_taken)} courses taken"
+    )
+    if st.session_state.data_source is None:
+        st.warning("⚠️ No data source selected yet — go to Step 1 and log in, upload PDF, or select manually.")
 
 run_btn = st.button("🚀 Run Optimizer", type="primary")
 
@@ -316,7 +428,9 @@ if st.session_state.results is not None:
     all_cats             = set(GE_CATEGORIES.keys())
     covered_by_optimizer = all_cats - uncovered - already_done
     total_credits        = sum(c.get("credit_hours", 3) for c in selected)
-    double_dippers       = [c for c in selected if len(c.get("ge_categories", [])) > 1]
+    # Double-dippers: use ge_categories_all (original full list) so that courses
+    # covering 2+ GE categories by design still show up even if one is already done.
+    double_dippers       = [c for c in selected if len(c.get("ge_categories_all", c.get("ge_categories", []))) > 1]
 
     st.divider()
     st.markdown("## Results")
@@ -374,12 +488,13 @@ if st.session_state.results is not None:
             has_difficulty = top is not None and (top.get("difficulty") or 0) > 0
             has_wta        = top is not None and (top.get("would_take_again") or -1) >= 0
 
+            cats_all = c.get("ge_categories_all", cats)
             rows.append({
                 "Course":           c["course_code"],
                 "Name":             c["course_name"],
                 "Credits":          c.get("credit_hours", 3),
                 "GE Categories":    ", ".join(cats),
-                "# Categories":     len(cats),
+                "# Categories":     len(cats_all),  # total by design (incl. already-done)
                 "Top Professor":    top["name"] if top else "No ratings yet",
                 "Rating (/5)":      round(top["rating"], 1)          if has_rating     else None,
                 "Difficulty (/5)":  round(top["difficulty"], 1)      if has_difficulty else None,
@@ -400,15 +515,23 @@ if st.session_state.results is not None:
             if val <= 3.5:    return "color: orange"
             return "color: red; font-weight: bold"
 
+        max_cats = int(df["# Categories"].max()) if not df.empty else 0
+
+        def highlight_cat_count(val):
+            # Only highlight when there's actually a course covering 2+ categories
+            if max_cats > 1 and val == max_cats:
+                return "background-color: #fff3cd; font-weight: bold"
+            return ""
+
         styled = (
             df.style
             .format({
-                "Rating (/5)":     lambda v: f"{v:.1f}" if v == v else "No ratings yet",
-                "Difficulty (/5)": lambda v: f"{v:.1f}" if v == v else "No ratings yet",
+                "Rating (/5)":     lambda v: f"{v:.1f}" if pd.notna(v) else "No ratings yet",
+                "Difficulty (/5)": lambda v: f"{v:.1f}" if pd.notna(v) else "No ratings yet",
             })
-            .applymap(color_rating,     subset=["Rating (/5)"])
-            .applymap(color_difficulty, subset=["Difficulty (/5)"])
-            .highlight_max(subset=["# Categories"], color="#fff3cd")
+            .applymap(color_rating,       subset=["Rating (/5)"])
+            .applymap(color_difficulty,   subset=["Difficulty (/5)"])
+            .applymap(highlight_cat_count, subset=["# Categories"])
         )
 
         st.dataframe(styled, use_container_width=True, hide_index=True)
@@ -421,7 +544,8 @@ if st.session_state.results is not None:
 | **Rating (/5)** | RMP overall professor rating (5 = best). Green ≥ 4.0, orange ≥ 3.0, red < 3.0 |
 | **Difficulty (/5)** | RMP difficulty score (lower = easier). Green ≤ 2.5, orange ≤ 3.5, red > 3.5 |
 | **Would Take Again** | % of students who would re-take this professor's class |
-| **# Categories** | How many GE requirements this course covers (highlighted = most) |
+| **# Categories** | How many of your *remaining* GE requirements this course covers. Highlighted yellow = most categories per course |
+| **Top Professor** | Highest-rated professor in that department on RateMyProfessors. Note: RMP doesn't filter by specific course section — this is the best-rated professor in the department, not necessarily who teaches *this* course number |
 | **No ratings yet** | No RMP data found for professors in this department |
 """)
 
@@ -474,20 +598,31 @@ if st.session_state.results is not None:
         st.caption("These courses satisfy multiple GE requirements simultaneously — prioritize these!")
 
         if double_dippers:
-            for c in sorted(double_dippers, key=lambda x: -len(x.get("ge_categories", []))):
-                cats  = c.get("ge_categories", [])
+            for c in sorted(double_dippers, key=lambda x: -len(x.get("ge_categories_all", x.get("ge_categories", [])))):
+                cats_remaining = c.get("ge_categories", [])
+                cats_all       = c.get("ge_categories_all", cats_remaining)
+                cats_done      = [cat for cat in cats_all if cat not in cats_remaining]
                 profs = c.get("professors", [])
                 top   = profs[0] if profs else None
                 with st.container(border=True):
                     col1, col2 = st.columns([3, 1])
                     with col1:
                         st.markdown(f"### `{c['course_code']}` — {c['course_name']}")
-                        st.markdown(
-                            " · ".join(f'<span class="covered-pill">{cat}</span>' for cat in cats),
-                            unsafe_allow_html=True
+                        remaining_pills = " · ".join(
+                            f'<span class="covered-pill">{cat}</span>'
+                            for cat in cats_remaining
                         )
+                        done_pills = " · ".join(
+                            f'<span class="already-done-pill">✓ {cat}</span>'
+                            for cat in cats_done
+                        )
+                        display_pills = " · ".join(filter(None, [remaining_pills, done_pills]))
+                        st.markdown(display_pills, unsafe_allow_html=True)
+                        if cats_done:
+                            st.caption(f"Blue = already satisfied · Green = still needed")
                     with col2:
-                        st.metric("GE Categories", len(cats))
+                        st.metric("Covers (total)", len(cats_all))
+                        st.metric("Still Needed", len(cats_remaining))
                         if top and top.get("rating"):
                             st.metric("RMP Rating", f"{top['rating']:.1f} / 5")
         else:
