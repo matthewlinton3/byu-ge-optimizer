@@ -8,3 +8,4 @@ pandas
 pdfplumber
 selenium
 webdriver-manager
+rapidfuzz

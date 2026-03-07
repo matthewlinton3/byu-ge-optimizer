@@ -1049,28 +1049,45 @@ if st.session_state.results is not None:
         with col_sort_label:
             st.caption(f"🏆 Sorted by: **{sort_priority}**")
 
+        # ── Build one row per professor per course ────────────────
         rows = []
         for c in selected:
-            profs = c.get("professors", [])
-            top   = profs[0] if profs else None
-            cats  = c.get("ge_categories", [])
-
-            has_rating     = top is not None and (top.get("rating") or 0) > 0
-            has_difficulty = top is not None and (top.get("difficulty") or 0) > 0
-            has_wta        = top is not None and (top.get("would_take_again") or -1) >= 0
-
+            profs    = c.get("professors", [])
+            cats     = c.get("ge_categories", [])
             cats_all = c.get("ge_categories_all", cats)
-            rows.append({
-                "Course":           c["course_code"],
-                "Name":             c["course_name"],
-                "Credits":          c.get("credit_hours", 3),
-                "GE Categories":    ", ".join(cats),
-                "# Categories":     len(cats_all),  # total by design (incl. already-done)
-                "Top Professor":    top["name"] if top else "No ratings yet",
-                "Rating (/5)":      round(top["rating"], 1)          if has_rating     else None,
-                "Difficulty (/5)":  round(top["difficulty"], 1)      if has_difficulty else None,
-                "Would Take Again": f"{top['would_take_again']:.0f}%" if has_wta        else "—",
-            })
+            sec_count = c.get("section_count", 0)
+            sec_label = f"{sec_count} section{'s' if sec_count != 1 else ''}" if sec_count else ""
+
+            if profs:
+                for prof in profs:
+                    has_rating = (prof.get("rating") or 0) > 0
+                    has_diff   = (prof.get("difficulty") or 0) > 0
+                    has_wta    = (prof.get("would_take_again") or -1) >= 0
+                    rows.append({
+                        "Course":           c["course_code"],
+                        "Name":             c["course_name"],
+                        "Credits":          c.get("credit_hours", 3),
+                        "GE Categories":    ", ".join(cats),
+                        "# Categories":     len(cats_all),
+                        "Sections":         sec_label,
+                        "Professor":        prof["name"],
+                        "Rating (/5)":      round(prof["rating"], 1)            if has_rating else None,
+                        "Difficulty (/5)":  round(prof["difficulty"], 1)        if has_diff   else None,
+                        "Would Take Again": f"{prof['would_take_again']:.0f}%"  if has_wta    else "—",
+                    })
+            else:
+                rows.append({
+                    "Course":           c["course_code"],
+                    "Name":             c["course_name"],
+                    "Credits":          c.get("credit_hours", 3),
+                    "GE Categories":    ", ".join(cats),
+                    "# Categories":     len(cats_all),
+                    "Sections":         sec_label,
+                    "Professor":        "No ratings yet",
+                    "Rating (/5)":      None,
+                    "Difficulty (/5)":  None,
+                    "Would Take Again": "—",
+                })
 
         df = pd.DataFrame(rows)
 
@@ -1099,8 +1116,8 @@ if st.session_state.results is not None:
                 "Rating (/5)":     lambda v: f"{v:.1f}" if pd.notna(v) else "No ratings yet",
                 "Difficulty (/5)": lambda v: f"{v:.1f}" if pd.notna(v) else "No ratings yet",
             })
-            .applymap(color_rating,       subset=["Rating (/5)"])
-            .applymap(color_difficulty,   subset=["Difficulty (/5)"])
+            .applymap(color_rating,        subset=["Rating (/5)"])
+            .applymap(color_difficulty,    subset=["Difficulty (/5)"])
             .applymap(highlight_cat_count, subset=["# Categories"])
         )
 
@@ -1111,12 +1128,13 @@ if st.session_state.results is not None:
             st.markdown("""
 | Column | Meaning |
 |--------|---------|
+| **Professor** | Each professor currently teaching a section of this course this semester, sorted by RMP rating (best first). Matched by name to RMP using fuzzy matching. |
 | **Rating (/5)** | RMP overall professor rating (5 = best). Green ≥ 4.0, orange ≥ 3.0, red < 3.0 |
 | **Difficulty (/5)** | RMP difficulty score (lower = easier). Green ≤ 2.5, orange ≤ 3.5, red > 3.5 |
 | **Would Take Again** | % of students who would re-take this professor's class |
-| **# Categories** | How many of your *remaining* GE requirements this course covers. Highlighted yellow = most categories per course |
-| **Top Professor** | Highest-rated professor in that department on RateMyProfessors. Note: RMP doesn't filter by specific course section — this is the best-rated professor in the department, not necessarily who teaches *this* course number |
-| **No ratings yet** | No RMP data found for professors in this department |
+| **Sections** | Total sections offered this semester (all delivery modes) |
+| **# Categories** | How many of your *remaining* GE requirements this course covers. Highlighted = most categories per course |
+| **No ratings yet** | Professor has no RMP profile, or course not offered this semester |
 """)
 
         st.download_button(
