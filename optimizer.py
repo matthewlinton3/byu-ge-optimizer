@@ -6,7 +6,7 @@ Uses PathwaySolver for universal, cross-category pathway-aware optimization.
 
 from scraper import GE_CATEGORIES
 from pathways import PathwaySolver, cheapest_completion_hint
-from ge_requirements import GE_REQUIREMENTS
+from ge_requirements import GE_REQUIREMENTS, is_category_complete
 
 try:
     import pulp
@@ -88,11 +88,9 @@ def _resolve_requirements(courses_taken, remaining_requirements):
     solve_result  = _solver.solve(courses_taken)
     remaining_cats = solve_result.remaining_categories
 
-    # Cross-reference against GE_REQUIREMENTS: if any taken course appears in
-    # the official list for a category, mark that category as completed.
+    # Cross-reference against GE_REQUIREMENTS (American Heritage needs 2 courses; Religion needs 14 credit hours).
     ge_req_completed = {
-        cat for cat, codes in GE_REQUIREMENTS.items()
-        if any(c in courses_taken for c in codes)
+        cat for cat in GE_REQUIREMENTS if is_category_complete(cat, courses_taken)
     }
     remaining_cats -= ge_req_completed
 

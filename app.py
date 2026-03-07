@@ -10,7 +10,7 @@ from optimizer import optimize
 from rmp import enrich_with_rmp
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from pathways import get_remaining_requirements
-from ge_requirements import GE_REQUIREMENTS
+from ge_requirements import GE_REQUIREMENTS, is_category_complete
 
 # ── Page config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -277,11 +277,8 @@ for key, default in [
 
 
 def _completed_from_courses(courses_taken: set) -> set:
-    """Return GE categories completed per GE_REQUIREMENTS cross-reference."""
-    return {
-        cat for cat, codes in GE_REQUIREMENTS.items()
-        if any(c in courses_taken for c in codes)
-    }
+    """Return GE categories completed (American Heritage needs 2 courses; Religion needs 14 credit hours)."""
+    return {cat for cat in GE_REQUIREMENTS if is_category_complete(cat, courses_taken)}
 
 
 # ════════════════════════════════════════════════════════════════

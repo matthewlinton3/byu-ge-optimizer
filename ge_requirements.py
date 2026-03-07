@@ -8,6 +8,10 @@ Sources:
 
 Maps each GE category name to the list of valid course codes.
 Import: from ge_requirements import GE_REQUIREMENTS
+
+IMPORTANT — Course code format: Course codes must exactly match what appears on
+BYU transcripts, including spaces (e.g. 'PHY S 100' not 'PHYS 100', 'REL C 352'
+not 'RELC 352'). Mismatched formatting causes transcript courses to be missed.
 """
 
 GE_REQUIREMENTS = {   'Advanced Written and Oral Communication': [   'BUS M 341',
@@ -106,6 +110,7 @@ GE_REQUIREMENTS = {   'Advanced Written and Oral Communication': [   'BUS M 341'
                                          'NURS 402',
                                          'PHIL 202',
                                          'PORT 315',
+                                         'REL C 352',
                                          'REL C 355',
                                          'REL C 356',
                                          'SRBCR 330'],
@@ -192,6 +197,7 @@ GE_REQUIREMENTS = {   'Advanced Written and Oral Communication': [   'BUS M 341'
                                                                    'PHSCS 100',
                                                                    'PHSCS 105',
                                                                    'PHSCS 106',
+                                                                   'PHY S 100',
                                                                    'PHY S 110A',
                                                                    'PHY S 110B'],
     'Social and Behavioral Sciences': [   'ANTHR 101',
@@ -206,3 +212,32 @@ GE_REQUIREMENTS = {   'Advanced Written and Oral Communication': [   'BUS M 341'
                                           'POLI 110',
                                           'PSYCH 111',
                                           'SOC 111']}
+
+# Religion: 14 credit hours required. REL courses are typically 2 credits each.
+REL_DEFAULT_CREDITS = 2
+REL_HOURS_REQUIRED = 14
+
+
+def religion_credit_hours(courses_taken: set) -> float:
+    """Sum credit hours for all REL courses in courses_taken. Unknown REL courses default to 2 credits."""
+    total = 0.0
+    for code in courses_taken:
+        if code.strip().startswith("REL "):
+            total += REL_DEFAULT_CREDITS
+    return total
+
+
+def is_category_complete(category: str, courses_taken: set) -> bool:
+    """
+    Return True if the given GE category is complete given courses_taken.
+    - Religion: complete only if religion_credit_hours(courses_taken) >= 14.
+    - American Heritage: requires at least 2 courses from its list (ECON 110 + one other).
+    - All others: complete if any course in the category list is in courses_taken.
+    """
+    codes = GE_REQUIREMENTS.get(category, [])
+    if category == "Religion":
+        return religion_credit_hours(courses_taken) >= REL_HOURS_REQUIRED
+    if category == "American Heritage":
+        taken_from_list = [c for c in codes if c in courses_taken]
+        return len(taken_from_list) >= 2
+    return any(c in courses_taken for c in codes)
