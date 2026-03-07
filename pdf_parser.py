@@ -1,10 +1,14 @@
 """
 BYU MyMap Degree Audit PDF Parser
-Parses a BYU degree audit PDF to detect which GE requirements are already completed.
+Parses a BYU degree audit PDF to detect which GE requirements are already
+completed AND which individual courses the student has taken (for pathway analysis).
 """
 
 import re
 from scraper import GE_CATEGORIES
+
+# Regex to extract individual BYU course codes from PDF text (e.g. "ECON 110", "REL A 121")
+COURSE_CODE_RE = re.compile(r"\b([A-Z]{2,6}(?:\s+[A-Z])?\s+\d{3}[A-Z]?)\b")
 
 try:
     import pdfplumber
@@ -239,7 +243,30 @@ def parse_degree_audit(uploaded_file) -> dict:
         else:
             result["parse_confidence"] = "low"
 
+        # Extract individual course codes taken from the PDF
+        result["courses_taken"] = extract_courses_taken(raw_text)
+
     except Exception as e:
         result["error"] = f"Failed to parse PDF: {str(e)}"
 
     return result
+
+
+def extract_courses_taken(text: str) -> set:
+    """
+    Scan PDF text for individual BYU course codes that appear near completion
+    signals, indicating the student has taken (and passed) those courses.
+    Returns a set of normalised course code strings like {"ECON 110", "REL A 121"}.
+    """
+    courses = set()
+    lines = text.split("\n")
+
+    for line in lines:
+        # Look for lines that contain both a course code AND a completion signal
+        if COMPLETION_PATTERN.search(line.lower()) or re.search(r"\b[ABCD][+-]?\b", line):
+            matches = COURSE_CODE_RE.findall(line)
+            for m in matches:
+                # Normalise whitespace
+                courses.add(re.sub(r"\s+", " ", m).strip())
+
+    return courses

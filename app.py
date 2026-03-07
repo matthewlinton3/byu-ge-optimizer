@@ -8,6 +8,7 @@ from scraper import scrape_catalog_for_ge, GE_CATEGORIES, init_db
 from optimizer import optimize
 from rmp import enrich_with_rmp
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
+from pathways import get_remaining_requirements, PATHWAYS
 
 # ── Page config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -61,6 +62,8 @@ for key, default in [
     ("pdf_confidence", None),
     ("manual_override", False),
     ("manual_completed", set()),
+    ("courses_taken", set()),       # individual course codes parsed from PDF
+    ("pathway_state", None),        # output of get_remaining_requirements()
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -78,16 +81,28 @@ with upload_col:
     uploaded_pdf = st.file_uploader(
         "Upload BYU MyMap Degree Audit PDF",
         type=["pdf"],
-        help="Download from MyMap → Degree Audit → Export PDF"
+        help="Download from MyMap → Degree Audit → Save as PDF"
     )
+    with st.expander("❓ How do I get this PDF?"):
+        st.markdown("""
+**Step 1** — Go to [mymap.byu.edu](https://mymap.byu.edu) and log in with your **NetID**.
+
+**Step 2** — Click on your **Degree Audit** or **Academic Plan** from the dashboard.
+
+**Step 3** — Look for a **Print** or **Export** button in the top-right corner of the audit page.
+
+**Step 4** — When the print dialog opens, change the destination to **"Save as PDF"** and click Save.
+
+**Step 5** — Upload that PDF file using the button above.
+
+---
+🔒 **Your privacy is protected.** Your PDF is processed locally and is never stored, uploaded to a server, or shared with anyone.
+        """)
 
 with info_col:
     st.info(
-        "**How to export from MyMap:**\n"
-        "1. Go to [mymap.byu.edu](https://mymap.byu.edu)\n"
-        "2. Open your Degree Audit\n"
-        "3. Print → Save as PDF\n"
-        "4. Upload here"
+        "**Tip:** The degree audit shows which GE requirements you've already "
+        "satisfied so the optimizer only recommends courses you actually still need."
     )
 
 # ── Parse uploaded PDF ───────────────────────────────────────────
@@ -119,10 +134,23 @@ if uploaded_pdf is not None:
             st.session_state.pdf_remaining   = parse_result["remaining"]
             st.session_state.pdf_confidence  = parse_result["parse_confidence"]
             st.session_state.manual_override = False
+
+            # Store individual courses taken for pathway-aware optimization
+            courses_taken = parse_result.get("courses_taken", set())
+            st.session_state.courses_taken = courses_taken
+
+            # Run pathway analysis to detect partial completions
+            if courses_taken:
+                pathway_state = get_remaining_requirements(
+                    courses_taken, parse_result["completed"]
+                )
+                st.session_state.pathway_state = pathway_state
+
             st.success(
                 f"✅ PDF parsed successfully "
                 f"({'high' if parse_result['parse_confidence'] == 'high' else 'medium'} confidence). "
-                f"Found **{len(parse_result['completed'])}** completed GE categories."
+                f"Found **{len(parse_result['completed'])}** completed GE categories"
+                + (f" and **{len(courses_taken)}** individual courses." if courses_taken else ".")
             )
 
 # ── PDF results summary ──────────────────────────────────────────
@@ -209,17 +237,23 @@ run_btn = st.button("🚀 Run Optimizer", type="primary")
 
 
 # ── Run optimizer ─────────────────────────────────────────────────
-def run_optimizer(use_ilp, skip_rmp, refresh, remaining_requirements):
+def run_optimizer(use_ilp, skip_rmp, refresh, remaining_requirements, courses_taken):
     init_db()
     with st.status("⚙️ Running optimizer...", expanded=True) as status:
         st.write("📚 Loading BYU GE course data...")
         courses = scrape_catalog_for_ge(refresh=refresh)
         st.write(f"✅ Loaded {len(courses)} GE courses")
 
+        if courses_taken:
+            st.write(f"🔍 Using pathway-aware optimization ({len(courses_taken)} courses already taken detected)...")
         target_count = len(remaining_requirements) if remaining_requirements else len(GE_CATEGORIES)
         st.write(f"🧮 Optimizing for {target_count} remaining GE categories...")
-        selected, uncovered = optimize(courses, use_ilp=use_ilp,
-                                       remaining_requirements=remaining_requirements)
+        selected, uncovered = optimize(
+            courses,
+            use_ilp=use_ilp,
+            remaining_requirements=remaining_requirements,
+            courses_taken=courses_taken or None,
+        )
         st.write(f"✅ Selected {len(selected)} courses")
 
         if not skip_rmp:
@@ -233,9 +267,10 @@ def run_optimizer(use_ilp, skip_rmp, refresh, remaining_requirements):
 
 
 if run_btn:
-    remaining = st.session_state.pdf_remaining
-    selected, uncovered = run_optimizer(use_ilp, skip_rmp, refresh, remaining)
-    st.session_state.results  = selected
+    remaining     = st.session_state.pdf_remaining
+    courses_taken = st.session_state.courses_taken
+    selected, uncovered = run_optimizer(use_ilp, skip_rmp, refresh, remaining, courses_taken)
+    st.session_state.results   = selected
     st.session_state.uncovered = uncovered
 
 
@@ -254,6 +289,23 @@ if st.session_state.results is not None:
 
     st.divider()
     st.markdown("## Results")
+
+    # ── Pathway partial-completion notice ────────────────────────
+    pathway_state = st.session_state.get("pathway_state")
+    if pathway_state and pathway_state.get("partial"):
+        with st.expander("⚡ Partial Requirements Detected — Pathway Shortcuts Applied", expanded=True):
+            st.caption(
+                "The optimizer found courses you've already started and chose the "
+                "cheapest pathway to complete each one."
+            )
+            for cat, state in pathway_state["partial"].items():
+                taken_str = ", ".join(state["already_taken"]) or "none"
+                needed    = state["courses_remaining"]
+                pathway   = state["pathway"]["description"]
+                st.markdown(
+                    f"**{cat}** — You've taken `{taken_str}`. "
+                    f"Pathway: _{pathway}_. **{needed} more course(s) needed.**"
+                )
 
     # ── Metrics ──────────────────────────────────────────────────
     m1, m2, m3, m4, m5 = st.columns(5)
