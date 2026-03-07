@@ -10,6 +10,12 @@ from rmp import enrich_with_rmp
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from pathways import get_remaining_requirements, PATHWAYS
 from mymap_scraper import login_and_scrape, format_debug_report
+try:
+    from mymap_browser_login import browser_login_and_scrape, HAS_SELENIUM
+except ImportError:
+    HAS_SELENIUM = False
+    def browser_login_and_scrape(**_):
+        return {"success": False, "error": "selenium not installed"}
 
 # ── Page config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -392,12 +398,10 @@ st.markdown("## Step 1 — Import Your Degree Audit")
 
 # ── Privacy notice (always visible) ──────────────────────────────
 st.info(
-    "🔒 **Privacy Notice** — Your NetID and password are used **only** to log into "
-    "mymap.byu.edu on your behalf during this session. They are held in memory "
-    "for the duration of the login request only, are **never stored, logged, or "
-    "written to disk**, and are discarded immediately after authentication. "
-    "This app has no database and does not transmit your credentials anywhere "
-    "other than BYU's own servers."
+    "🔒 **Privacy** — The recommended browser login opens mymap.byu.edu directly in Chrome: "
+    "your credentials never pass through this app. "
+    "The direct-login fallback sends credentials only to BYU's CAS server and discards them immediately. "
+    "Nothing is stored, logged, or written to disk."
 )
 
 # ── Tabs: MyMap Login | PDF Upload | Manual ──────────────────────
@@ -405,71 +409,109 @@ input_tab1, input_tab2, input_tab3 = st.tabs(
     ["🔑 Log in to MyMap (Recommended)", "📄 Upload PDF", "✏️ Manual Entry"]
 )
 
+# ── Shared helper: process a MyMap scrape result into session state ──────────
+def _apply_mymap_result(scrape_result: dict):
+    """Store a scrape result dict into session state and render success/error."""
+    debug_report = format_debug_report(scrape_result)
+    st.session_state.mymap_scrape_result = scrape_result
+    st.session_state.mymap_debug_report  = debug_report
+
+    if scrape_result["success"]:
+        completed     = scrape_result["ge_completed"]
+        remaining     = scrape_result["ge_remaining"]
+        courses_taken = scrape_result["completed_courses"] | scrape_result["in_progress_courses"]
+
+        st.session_state.pdf_completed   = completed
+        st.session_state.pdf_remaining   = remaining or (set(GE_CATEGORIES.keys()) - completed)
+        st.session_state.courses_taken   = courses_taken
+        st.session_state.manual_override = False
+        st.session_state.data_source     = "mymap"
+
+        if courses_taken:
+            st.session_state.pathway_state = get_remaining_requirements(courses_taken, completed)
+
+        st.success(
+            f"✅ MyMap imported successfully! "
+            f"Found **{len(completed)}** completed GE categories "
+            f"and **{len(courses_taken)}** individual courses."
+        )
+    else:
+        st.session_state.mymap_login_error = scrape_result.get("error")
+        dbg = scrape_result.get("debug", {})
+        if dbg.get("duo_detected"):
+            st.error(
+                "⚠️ **Duo 2FA Detected** — The direct login cannot complete MFA. "
+                "Use the **Open Browser** button above (it lets you complete Duo yourself), "
+                "or try the **Upload PDF** / **Manual Entry** tab."
+            )
+        else:
+            st.error(
+                f"❌ Failed: {scrape_result.get('error', 'Unknown error')}  \n"
+                "Please try the browser login, or use the PDF/Manual tab."
+            )
+
+
 # ── Tab 1: MyMap Login ────────────────────────────────────────────
 with input_tab1:
-    st.markdown("### Log in with Your BYU NetID")
+
+    # ── Primary: Browser Login ────────────────────────────────────
+    st.markdown("### Open a Browser Window to Log In")
     st.caption(
-        "The app will log into MyMap on your behalf, scrape your personal degree audit "
-        "in real time, and show you the full debug output so you can verify accuracy "
-        "before running the optimizer."
+        "Click the button below. A Chrome window will open pointing to mymap.byu.edu. "
+        "Log in normally — including Duo 2FA — then return to this tab. "
+        "The app will automatically capture your session and import your degree audit. "
+        "**Your credentials never pass through this app.**"
     )
 
-    with st.form("mymap_login_form"):
-        netid_input    = st.text_input("BYU NetID", placeholder="e.g. jsmith123")
-        password_input = st.text_input("BYU Password", type="password")
-        login_btn      = st.form_submit_button("🔑 Log in & Import Degree Audit", type="primary")
-
-    if login_btn:
-        if not netid_input or not password_input:
-            st.error("Please enter both your NetID and password.")
-        else:
+    if not HAS_SELENIUM:
+        st.warning(
+            "⚠️ Browser login requires `selenium` and `webdriver-manager` "
+            "(run `pip install selenium webdriver-manager`). "
+            "Use the direct login or PDF/Manual tab below."
+        )
+    else:
+        if st.button("🌐 Open Browser & Log In to MyMap", type="primary", key="browser_login_btn"):
             st.session_state.mymap_scrape_result = None
             st.session_state.mymap_debug_report  = None
             st.session_state.mymap_login_error   = None
 
-            with st.spinner("🔐 Logging into MyMap and scraping your degree audit..."):
-                scrape_result = login_and_scrape(netid_input, password_input)
-                # Credentials are now out of scope; scrape_result has no credentials in it
+            with st.spinner(
+                "🌐 Browser window is open — log in to MyMap (including Duo 2FA), "
+                "then return here. Waiting up to 3 minutes..."
+            ):
+                scrape_result = browser_login_and_scrape(timeout_seconds=180)
 
-            debug_report = format_debug_report(scrape_result)
-            st.session_state.mymap_scrape_result = scrape_result
-            st.session_state.mymap_debug_report  = debug_report
+            _apply_mymap_result(scrape_result)
 
-            if scrape_result["success"]:
-                completed     = scrape_result["ge_completed"]
-                remaining     = scrape_result["ge_remaining"]
-                courses_taken = scrape_result["completed_courses"] | scrape_result["in_progress_courses"]
+    st.divider()
 
-                st.session_state.pdf_completed   = completed
-                st.session_state.pdf_remaining   = remaining or (set(GE_CATEGORIES.keys()) - completed)
-                st.session_state.courses_taken   = courses_taken
-                st.session_state.manual_override = False
-                st.session_state.data_source     = "mymap"
+    # ── Fallback: Direct Credential Login ─────────────────────────
+    with st.expander("Or log in directly (no browser required — Duo 2FA not supported)", expanded=not HAS_SELENIUM):
+        st.caption(
+            "Enter your BYU credentials directly. The app submits them to BYU's CAS login "
+            "server on your behalf. **Cannot complete Duo 2FA** — if you have 2FA enabled, "
+            "use the browser login above."
+        )
 
-                if courses_taken:
-                    pathway_state = get_remaining_requirements(courses_taken, completed)
-                    st.session_state.pathway_state = pathway_state
+        with st.form("mymap_login_form"):
+            netid_input    = st.text_input("BYU NetID", placeholder="e.g. jsmith123")
+            password_input = st.text_input("BYU Password", type="password")
+            login_btn      = st.form_submit_button("🔑 Log in & Import Degree Audit", type="primary")
 
-                st.success(
-                    f"✅ MyMap imported successfully! "
-                    f"Found **{len(completed)}** completed GE categories "
-                    f"and **{len(courses_taken)}** individual courses."
-                )
+        if login_btn:
+            if not netid_input or not password_input:
+                st.error("Please enter both your NetID and password.")
             else:
-                st.session_state.mymap_login_error = scrape_result.get("error")
-                debug = scrape_result.get("debug", {})
-                if debug.get("duo_detected"):
-                    st.error(
-                        "⚠️ **Duo 2FA Detected** — Automated login can't complete multi-factor "
-                        "authentication. Please use the **Upload PDF** or **Manual Entry** tab instead."
-                    )
-                else:
-                    st.error(
-                        f"❌ Login or scraping failed: {scrape_result.get('error', 'Unknown error')}  \n"
-                        "Please check your NetID/password, or use the PDF/Manual tab."
-                    )
+                st.session_state.mymap_scrape_result = None
+                st.session_state.mymap_debug_report  = None
+                st.session_state.mymap_login_error   = None
 
-    # ── Debug output (always shown after a scrape attempt) ────────
+                with st.spinner("🔐 Logging into MyMap and scraping your degree audit..."):
+                    scrape_result = login_and_scrape(netid_input, password_input)
+
+                _apply_mymap_result(scrape_result)
+
+    # ── Debug output (always shown after any scrape attempt) ──────
     if st.session_state.mymap_debug_report:
         result = st.session_state.mymap_scrape_result
         with st.expander("🔍 Full Debug Output — Verify Accuracy Before Optimizing", expanded=True):
@@ -479,13 +521,12 @@ with input_tab1:
             )
             st.code(st.session_state.mymap_debug_report, language=None)
 
-        # Show structured summary even if debug is expanded
         if result and result.get("raw_requirements"):
             st.markdown("#### 📋 Detected GE Status")
             req_col1, req_col2 = st.columns(2)
             items = list(result["raw_requirements"].items())
             for i, (cat, info) in enumerate(items):
-                col = req_col1 if i % 2 == 0 else req_col2
+                col  = req_col1 if i % 2 == 0 else req_col2
                 icon = {"completed": "✅", "in_progress": "🔄", "remaining": "❌"}.get(
                     info["status"], "❓"
                 )
