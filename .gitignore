@@ -1,0 +1,21 @@
+# Environment variables
+.env
+.env.*
+
+# Database cache
+ge_courses.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# OS files
+.DS_Store
