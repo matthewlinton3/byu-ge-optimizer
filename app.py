@@ -657,6 +657,30 @@ if st.session_state.results is not None:
     st.divider()
     st.markdown("## Results")
 
+    # ── Debug: GE Completion Source ───────────────────────────────
+    with st.expander("🔍 Debug: What Triggered Each GE Completion", expanded=False):
+        taken = st.session_state.courses_taken or set()
+        if already_done:
+            cats_from_courses = _completed_from_courses(taken)
+            st.markdown("Use this to verify the optimizer isn't incorrectly marking categories complete.")
+            st.markdown("")
+            for cat in sorted(already_done):
+                triggering = sorted(c for c in taken if c in GE_REQUIREMENTS.get(cat, []))
+                if triggering:
+                    st.success(f"**{cat}** — course match: {', '.join(triggering)}")
+                else:
+                    st.info(f"**{cat}** — PDF text pattern match (no individual course cross-reference)")
+            if taken - {c for codes in GE_REQUIREMENTS.values() for c in codes}:
+                unmatched = sorted(
+                    c for c in taken
+                    if not any(c in codes for codes in GE_REQUIREMENTS.values())
+                )
+                if unmatched:
+                    st.markdown("**Courses extracted from PDF not in GE_REQUIREMENTS:**")
+                    st.caption(", ".join(unmatched))
+        else:
+            st.caption("No data yet — upload a PDF and run the optimizer first.")
+
     # ── Pathway partial-completion notice ────────────────────────
     pathway_state = st.session_state.get("pathway_state")
     if pathway_state and pathway_state.get("partial"):

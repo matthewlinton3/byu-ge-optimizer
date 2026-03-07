@@ -350,9 +350,12 @@ def enrich_with_rmp(courses: list[dict], refresh: bool = False) -> list[dict]:
 
         if dept and num:
             try:
-                schedule_names, section_count = get_instructors_for_course(dept, num)
+                schedule_names, section_count, schedule_title = get_instructors_for_course(dept, num)
+                if schedule_title:
+                    course["course_name"] = schedule_title
                 print(f"      schedule: {section_count} sections, "
-                      f"instructors: {schedule_names or ['(none)']}")
+                      f"instructors: {schedule_names or ['(none)']}, "
+                      f"title: {schedule_title or '(none)'}")
             except Exception as exc:
                 print(f"      schedule lookup failed: {exc}")
 

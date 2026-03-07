@@ -10,6 +10,12 @@ from scraper import GE_CATEGORIES
 # Regex to extract individual BYU course codes from PDF text (e.g. "ECON 110", "REL A 121")
 COURSE_CODE_RE = re.compile(r"\b([A-Z]{2,6}(?:\s+[A-Z])?\s+\d{3}[A-Z]?)\b")
 
+# BYU degree audit format: credit hours (decimal) followed by a letter grade at end of line.
+# e.g. "ECON 110  Economic Principles  3.00  A"  or  "REL A 121  Book of Mormon  2.00  A+"
+# This is intentionally strict to avoid matching arbitrary standalone letters (A, B, C, D)
+# that appear in section headers, labels, or other non-course contexts.
+GRADE_LINE_RE = re.compile(r"\d+\.?\d*\s+[ABCD][+-]?\s*$")
+
 try:
     import pdfplumber
     HAS_PDFPLUMBER = True
@@ -262,8 +268,12 @@ def extract_courses_taken(text: str) -> set:
     lines = text.split("\n")
 
     for line in lines:
-        # Look for lines that contain both a course code AND a completion signal
-        if COMPLETION_PATTERN.search(line.lower()) or re.search(r"\b[ABCD][+-]?\b", line):
+        # Match lines that either contain a completion signal ("satisfied", "complete", etc.)
+        # OR follow BYU's credit-hours + grade format (e.g. "3.00  A" at end of line).
+        # The grade pattern is intentionally strict: requires a decimal credit-hours number
+        # before the grade to avoid false positives from standalone letters in headings/labels.
+        line_stripped = line.strip()
+        if COMPLETION_PATTERN.search(line.lower()) or GRADE_LINE_RE.search(line_stripped):
             matches = COURSE_CODE_RE.findall(line)
             for m in matches:
                 # Normalise whitespace

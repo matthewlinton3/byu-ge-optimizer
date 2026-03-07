@@ -55,7 +55,7 @@ def _fetch_init_data() -> tuple[str, str]:
         return "20263", ""
 
 
-def get_course_sections(dept: str, catalog_number: str) -> list[dict]:
+def get_course_sections(dept: str, catalog_number: str) -> tuple[list[dict], str]:
     """
     Fetch all current sections for a course.
 
@@ -64,20 +64,11 @@ def get_course_sections(dept: str, catalog_number: str) -> list[dict]:
     dept           : BYU department code, e.g. "PSYCH", "ECON", "REL A"
     catalog_number : 3-digit catalog number, e.g. "111", "110"
 
-    Returns list of section dicts, each with keys:
+    Returns (sections, course_title) where sections is a list of dicts with keys:
         section_number, instructor_name, section_type, credit_hours, mode
+    and course_title is the authoritative title from the BYU schedule (may be "").
     """
     yearterm, session_id = _fetch_init_data()
-
-    # Build the search object matching the JS buildBasicSearch() structure
-    search_obj = {
-        "yearterm": yearterm,
-        "dept_name_or_keyword": {
-            "dept":    dept.upper(),
-            "keyword": dept.upper(),
-        },
-        "catalog_number": catalog_number.lstrip("0") or catalog_number,
-    }
 
     # Build form-encoded data matching jQuery's nested object serialization
     post_data = {
@@ -98,12 +89,21 @@ def get_course_sections(dept: str, catalog_number: str) -> list[dict]:
         resp.raise_for_status()
         data = resp.json()
     except Exception:
-        return []
+        return [], ""
 
     # data is a dict keyed by "curriculumId-titleCode"
     sections: list[dict] = []
+    course_title: str = ""
     if isinstance(data, dict):
         for _key, course in data.items():
+            # Capture course title from the top-level course object
+            if not course_title:
+                course_title = (
+                    course.get("title_long")
+                    or course.get("title")
+                    or course.get("full_title")
+                    or ""
+                ).strip()
             for sec in course.get("sections", []):
                 name = (sec.get("instructor_name") or "").strip()
                 if name:
@@ -115,24 +115,25 @@ def get_course_sections(dept: str, catalog_number: str) -> list[dict]:
                         "mode":           sec.get("mode", ""),
                     })
 
-    return sections
+    return sections, course_title
 
 
-def get_instructors_for_course(dept: str, catalog_number: str) -> tuple[list[str], int]:
+def get_instructors_for_course(dept: str, catalog_number: str) -> tuple[list[str], int, str]:
     """
-    Return (unique_instructor_names, total_section_count) for a course.
+    Return (unique_instructor_names, total_section_count, course_title) for a course.
 
     Names are in the form returned by BYU, e.g. "Sandra Sephton".
     section_count includes ALL sections (even TBA / no instructor listed).
+    course_title is the authoritative title from the BYU class schedule.
     """
-    sections = get_course_sections(dept, catalog_number)
+    sections, course_title = get_course_sections(dept, catalog_number)
     total_sections = len(sections)
     seen: dict[str, bool] = {}
     for sec in sections:
         name = sec["instructor_name"]
         if name and name.upper() not in ("TBA", "STAFF", ""):
             seen[name] = True
-    return list(seen.keys()), total_sections
+    return list(seen.keys()), total_sections, course_title
 
 
 def parse_course_code(course_code: str) -> tuple[str, str]:
