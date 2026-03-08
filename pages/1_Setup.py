@@ -139,17 +139,18 @@ with st.expander("✏️ Manual Entry — select completed GE categories", expan
 if st.session_state.completed_categories is not None and st.session_state.data_source:
     st.markdown('<div class="byu-progress-section">', unsafe_allow_html=True)
     st.markdown('<p class="byu-progress-title">Completed</p>', unsafe_allow_html=True)
+    _none_span = '<span style="color:#888;">None</span>'
     done_html = "".join(
         f'<span class="byu-pill byu-pill-done">✓ {cat}</span>'
         for cat in sorted(st.session_state.completed_categories)
     )
-    st.markdown(f'<div class="byu-card">{done_html or "<span style=\"color:#888;\">None</span>"}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="byu-card">{done_html or _none_span}</div>', unsafe_allow_html=True)
     st.markdown('<p class="byu-progress-title">Remaining</p>', unsafe_allow_html=True)
     rem = st.session_state.remaining_categories or set()
     rem_html = "".join(
         f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in sorted(rem)
     )
-    st.markdown(f'<div class="byu-card">{rem_html or "<span style=\"color:#888;\">None</span>"}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="byu-card">{rem_html or _none_span}</div>', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 st.divider()
