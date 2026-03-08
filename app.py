@@ -126,6 +126,18 @@ p, li, span, label, .stCaption { color: var(--byu-text) !important; }
 .byu-pill-remaining { background: #E3F2FD; color: var(--byu-navy); }
 .byu-pill-uncovered { background: #FFEBEE; color: #B71C1C; }
 
+/* Locked courses section */
+.byu-locked-section {
+    background: #E8F5E9;
+    border: 1px solid #C8E6C9;
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+}
+.byu-locked-section .course-title { font-weight: 600; color: var(--byu-navy); font-size: 1.05rem; }
+.byu-locked-section .course-code { color: var(--byu-royal); font-weight: 600; }
+
 /* Buttons — royal blue primary */
 button[data-testid="baseButton-primary"],
 .stFormSubmitButton button {
@@ -271,6 +283,7 @@ for key, default in [
     ("courses_taken", set()),
     ("pathway_state", None),
     ("data_source", None),
+    ("locked_courses", []),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -471,12 +484,37 @@ def _difficulty_for_sort(c):
     return v if v is not None else 99
 
 if st.session_state.results is not None:
-    selected = list(st.session_state.results)
-    uncovered = st.session_state.uncovered
     already_done = st.session_state.pdf_completed or set()
+    pdf_remaining = st.session_state.pdf_remaining or set(GE_CATEGORIES.keys())
+    locked_courses = st.session_state.locked_courses
+    locked_codes = {c["course_code"] for c in locked_courses}
+
+    # ── Categories covered by locked courses ───────────────────────
+    locked_covered = set()
+    for lc in locked_courses:
+        locked_covered.update(lc.get("ge_categories_all", lc.get("ge_categories", [])))
+    remaining_after_lock = pdf_remaining - locked_covered
+
+    # ── Compute selected and uncovered (re-run optimizer when locked) ─
+    if not locked_courses:
+        selected = list(st.session_state.results)
+        uncovered = st.session_state.uncovered
+    elif not remaining_after_lock:
+        selected = []
+        uncovered = set()
+    else:
+        courses = scrape_catalog_for_ge(refresh=refresh)
+        filtered = [c for c in courses if c["course_code"] not in locked_codes]
+        selected, uncovered = optimize(
+            filtered,
+            use_ilp=use_ilp,
+            remaining_requirements=remaining_after_lock,
+            courses_taken=st.session_state.courses_taken or None,
+        )
+        if not skip_rmp:
+            selected = enrich_with_rmp(selected, refresh=refresh)
 
     num_cats = lambda c: len(c.get("ge_categories", []))
-    # Canonical order: GE categories desc, then RMP rating desc, then difficulty asc.
     if sort_priority == "Best Professor":
         selected.sort(key=lambda c: (-_rating_for_sort(c), -num_cats(c), _difficulty_for_sort(c)))
     elif sort_priority == "Easiest Classes":
@@ -484,16 +522,48 @@ if st.session_state.results is not None:
     elif sort_priority == "Fewest Classes":
         selected.sort(key=lambda c: (-num_cats(c), -_rating_for_sort(c), _difficulty_for_sort(c)))
     else:
-        # Balanced (default): double-dippers first, then best rating, then easiest.
         selected.sort(key=lambda c: (-num_cats(c), -_rating_for_sort(c), _difficulty_for_sort(c)))
 
     all_cats = set(GE_CATEGORIES.keys())
     covered_by_optimizer = all_cats - uncovered - already_done
-    total_credits = sum(c.get("credit_hours", 3) for c in selected)
+    total_credits = sum(c.get("credit_hours", 3) for c in selected) + sum(
+        c.get("credit_hours", 3) for c in locked_courses
+    )
     double_dippers = [c for c in selected if len(c.get("ge_categories_all", c.get("ge_categories", []))) > 1]
 
     st.divider()
     st.markdown("## Results")
+
+    # ── Your Locked Courses (green section at top) ─────────────────
+    if locked_courses:
+        lock_header_col1, lock_header_col2 = st.columns([3, 1])
+        with lock_header_col1:
+            st.markdown("### ✅ Your Locked Courses")
+        with lock_header_col2:
+            if st.button("Reset All", key="reset_locked", help="Clear all locked courses and show original recommendations"):
+                st.session_state.locked_courses = []
+                st.rerun()
+        for lc in locked_courses:
+            cats = lc.get("ge_categories", lc.get("ge_categories_all", []))
+            pills = "".join(
+                f'<span class="byu-pill byu-pill-done">{cat}</span>' for cat in cats
+            )
+            row1, row2 = st.columns([5, 1])
+            with row1:
+                st.markdown(
+                    f'<div class="byu-locked-section">'
+                    f'<span class="course-code">{lc["course_code"]}</span> — {lc["course_name"]} '
+                    f'<div class="ge-pills">{pills}</div></div>',
+                    unsafe_allow_html=True,
+                )
+            with row2:
+                if st.button("🔓 Unlock", key=f"unlock_{lc['course_code']}"):
+                    st.session_state.locked_courses = [
+                        x for x in st.session_state.locked_courses
+                        if x["course_code"] != lc["course_code"]
+                    ]
+                    st.rerun()
+        st.markdown("")
 
     # Progress tracker: completed | covered by optimizer | still uncovered
     st.markdown("### GE progress")
@@ -526,7 +596,7 @@ if st.session_state.results is not None:
 
     # Metrics row
     m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Courses to take", len(selected))
+    m1.metric("Courses to take", len(locked_courses) + len(selected))
     m2.metric("Est. credits", f"~{total_credits}")
     m3.metric("Already done", len(already_done))
     m4.metric("Covered", len(covered_by_optimizer))
@@ -536,9 +606,13 @@ if st.session_state.results is not None:
 
     tab1, tab2, tab3 = st.tabs(["Recommended courses", "Full GE map", "Double-dippers"])
 
-    # Tab 1: Course cards (no dataframe)
+    # Tab 1: Course cards (no dataframe) + Lock button per course
     with tab1:
         st.caption(f"Sorted by: **{sort_priority}**")
+        if locked_courses:
+            st.caption("Lock courses you want to keep; the optimizer will recommend the best options for the rest.")
+        if not remaining_after_lock and locked_courses:
+            st.success("All remaining GE categories are covered by your locked courses.")
         for c in selected:
             cats = c.get("ge_categories", [])
             cats_display = ", ".join(cats)
@@ -568,13 +642,17 @@ if st.session_state.results is not None:
             </div>
             """
             st.markdown(card_html, unsafe_allow_html=True)
+            if st.button("🔒 Lock this course", key=f"lock_{c['course_code']}"):
+                if c["course_code"] not in locked_codes:
+                    st.session_state.locked_courses = st.session_state.locked_courses + [dict(c)]
+                st.rerun()
 
         with st.expander("Column guide", expanded=False):
             st.markdown("| Column | Meaning |\n|--------|--------|\n| Professor | Current instructors; RMP rating, difficulty, would-take-again %. |\n| GE categories | Remaining requirements this course fulfills. |")
 
-        # CSV export
+        # CSV export (locked + recommended)
         rows = []
-        for c in selected:
+        for c in locked_courses + selected:
             profs = c.get("professors", [])
             cats = c.get("ge_categories", [])
             if profs:
@@ -612,6 +690,7 @@ if st.session_state.results is not None:
             st.markdown("**Covered by optimizer**")
             for cat in sorted(covered_by_optimizer):
                 courses_for = [c for c in selected if cat in c.get("ge_categories", [])]
+                courses_for += [c for c in locked_courses if cat in c.get("ge_categories", c.get("ge_categories_all", []))]
                 codes = ", ".join(c["course_code"] for c in courses_for)
                 st.markdown(f'<span class="byu-pill byu-pill-remaining">{cat}</span> <span style="color:#666;font-size:0.8rem;">→ {codes}</span>', unsafe_allow_html=True)
         with col_c:
