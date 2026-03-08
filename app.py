@@ -26,8 +26,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── BYU Brand Design System ─────────────────────────────────────
-# IBM Plex Sans, navy #002E5D, royal blue #0062B8, white, #F5F5F5 cards, #333333 body
+# ── BYU Brand Design System (inject first so styling applies to all content) ──
+# CSS variables (--byu-navy, --byu-royal, etc.) and HTML must use unsafe_allow_html=True.
 st.markdown("""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
