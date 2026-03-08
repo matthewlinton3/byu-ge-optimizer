@@ -11,6 +11,12 @@ from rmp import enrich_with_rmp
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from pathways import get_remaining_requirements
 from ge_requirements import GE_REQUIREMENTS, is_category_complete
+from schedule_scraper import attach_sections_to_courses
+from schedule_generator import (
+    _enumerate_combinations,
+    rank_combinations,
+    format_schedule_for_export,
+)
 
 # ── Page config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -137,6 +143,15 @@ p, li, span, label, .stCaption { color: var(--byu-text) !important; }
 }
 .byu-locked-section .course-title { font-weight: 600; color: var(--byu-navy); font-size: 1.05rem; }
 .byu-locked-section .course-code { color: var(--byu-royal); font-weight: 600; }
+
+/* Schedule calendar grid */
+.sched-grid { display: grid; grid-template-columns: 60px repeat(5, 1fr); grid-template-rows: auto; font-family: 'IBM Plex Sans', sans-serif; font-size: 0.75rem; border: 1px solid var(--byu-border); border-radius: 8px; overflow: hidden; }
+.sched-cell { border-right: 1px solid var(--byu-border); border-bottom: 1px solid var(--byu-border); padding: 4px 6px; min-height: 24px; }
+.sched-cell.time { background: var(--byu-gray); font-weight: 600; color: var(--byu-text-muted); }
+.sched-cell.day { background: var(--byu-gray); font-weight: 600; color: var(--byu-navy); text-align: center; }
+.sched-block { border-radius: 4px; padding: 6px 8px; color: #fff; font-weight: 500; overflow: hidden; }
+.sched-block .code { font-weight: 700; }
+.sched-block .prof, .sched-block .room { opacity: 0.95; font-size: 0.7rem; }
 
 /* Buttons — royal blue primary */
 button[data-testid="baseButton-primary"],
@@ -284,6 +299,8 @@ for key, default in [
     ("pathway_state", None),
     ("data_source", None),
     ("locked_courses", []),
+    ("schedule_options", None),
+    ("schedule_index", 0),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -542,6 +559,7 @@ if st.session_state.results is not None:
         with lock_header_col2:
             if st.button("Reset All", key="reset_locked", help="Clear all locked courses and show original recommendations"):
                 st.session_state.locked_courses = []
+                st.session_state.schedule_options = None
                 st.rerun()
         for lc in locked_courses:
             cats = lc.get("ge_categories", lc.get("ge_categories_all", []))
@@ -562,6 +580,7 @@ if st.session_state.results is not None:
                         x for x in st.session_state.locked_courses
                         if x["course_code"] != lc["course_code"]
                     ]
+                    st.session_state.schedule_options = None
                     st.rerun()
         st.markdown("")
 
@@ -645,6 +664,7 @@ if st.session_state.results is not None:
             if st.button("🔒 Lock this course", key=f"lock_{c['course_code']}"):
                 if c["course_code"] not in locked_codes:
                     st.session_state.locked_courses = st.session_state.locked_courses + [dict(c)]
+                    st.session_state.schedule_options = None
                 st.rerun()
 
         with st.expander("Column guide", expanded=False):
@@ -736,6 +756,103 @@ if st.session_state.results is not None:
             for cat, state in pathway_state["partial"].items():
                 taken_str = ", ".join(state.already_taken) or "none"
                 st.markdown(f"**{cat}** — Taken: `{taken_str}`. **{state.courses_remaining}** more needed.")
+
+    # ═══════════════════════════════════════════════════════════════
+    # Schedule Generator (after locked courses)
+    # ═══════════════════════════════════════════════════════════════
+    if locked_courses:
+        st.divider()
+        st.markdown("## Schedule Generator")
+        st.caption("Find conflict-free section combinations for your locked courses and view a weekly calendar.")
+
+        preferred_start = st.radio(
+            "Preferred start time",
+            options=["Early (7–9am)", "Mid (9–11am)", "Late (11am+)"],
+            index=1,
+            key="sched_pref_start",
+            horizontal=True,
+        )
+        preferred_days = st.radio(
+            "Preferred days",
+            options=["MWF", "TTh", "No preference"],
+            index=2,
+            key="sched_pref_days",
+            horizontal=True,
+        )
+        minimize_gaps = st.checkbox("Minimize gaps between classes", value=True, key="sched_min_gaps")
+
+        if st.button("Generate My Schedule", type="primary", key="gen_schedule"):
+            locked_copy = [dict(c) for c in locked_courses]
+            with st.spinner("Fetching section times from BYU class schedule..."):
+                attach_sections_to_courses(locked_copy)
+            combos = _enumerate_combinations(locked_copy)
+            if not combos:
+                st.warning("No conflict-free schedule found for your locked courses. Sections may have overlapping times or missing time data.")
+            else:
+                start_map = {"Early (7–9am)": "Early", "Mid (9–11am)": "Mid", "Late (11am+)": "Late"}
+                ranked = rank_combinations(
+                    combos,
+                    start_map.get(preferred_start, "Mid"),
+                    preferred_days,
+                    minimize_gaps,
+                )
+                st.session_state.schedule_options = ranked
+                st.session_state.schedule_index = 0
+                st.rerun()
+
+        if st.session_state.schedule_options:
+            opts = st.session_state.schedule_options
+            idx = st.session_state.schedule_index
+            names = [f"Option {i+1}" for i in range(len(opts))]
+            sel = st.radio("Schedule option", names, index=min(idx, len(opts) - 1), key="sched_choice", horizontal=True)
+            st.session_state.schedule_index = names.index(sel)
+
+            selection = opts[st.session_state.schedule_index]
+            day_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+            colors = ["#0062B8", "#1B5E20", "#B71C1C", "#E65100", "#4A148C", "#004D40"]
+            course_colors = {c[0].get("course_code"): colors[i % len(colors)] for i, c in enumerate(selection)}
+
+            def _time_label(slot):
+                h = 7 + slot // 2
+                m = (slot % 2) * 30
+                if h < 12:
+                    return f"{h}:{m:02d} am"
+                if h == 12:
+                    return f"12:{m:02d} pm"
+                return f"{h-12}:{m:02d} pm"
+
+            grid_html = '<div class="sched-grid" style="grid-template-rows: 32px repeat(22, 28px);">'
+            grid_html += '<div class="sched-cell time"></div>' + "".join(f'<div class="sched-cell day">{d}</div>' for d in day_names)
+            for slot in range(22):
+                grid_html += f'<div class="sched-cell time">{_time_label(slot)}</div>'
+                for day_idx in range(5):
+                    parts = []
+                    for course, sec in selection:
+                        days_set = sec.get("days_set") or set()
+                        if day_idx not in days_set:
+                            continue
+                        start_t = sec.get("start_time")
+                        end_t = sec.get("end_time")
+                        if start_t is None or end_t is None:
+                            continue
+                        slot_start = 7 + slot / 2
+                        slot_end = 7 + (slot + 1) / 2
+                        if slot_start < end_t and slot_end > start_t:
+                            color = course_colors.get(course.get("course_code"), "#666")
+                            parts.append(f'<div class="sched-block" style="background:{color}"><span class="code">{course.get("course_code", "")}</span><br>{sec.get("instructor_name", "TBA")}<br>{sec.get("room", "") or "—"}</div>')
+                    grid_html += f'<div class="sched-cell">{"".join(parts)}</div>'
+            grid_html += "</div>"
+            st.markdown(grid_html, unsafe_allow_html=True)
+
+            export_text = format_schedule_for_export(selection)
+            st.download_button(
+                "Copy to Clipboard / Download as text",
+                data=export_text,
+                file_name="byu_schedule.txt",
+                mime="text/plain",
+                key="sched_export",
+            )
+            st.caption("Paste into Google Calendar or import as plain text. Each block shows course code, professor, and room.")
 
 else:
     st.markdown("""

@@ -55,6 +55,57 @@ def _fetch_init_data() -> tuple[str, str]:
         return "20263", ""
 
 
+def _parse_time_to_decimal(t: str) -> float | None:
+    """
+    Parse a time string (e.g. '8:00 AM', '2:30 PM', '14:30') to decimal hours 0-24.
+    Returns None if unparseable.
+    """
+    if not t or not isinstance(t, str):
+        return None
+    t = t.strip().upper()
+    # 24h format e.g. "14:30" or "14:30:00"
+    m = re.match(r"^(\d{1,2}):(\d{2})(?::\d{2})?$", t)
+    if m:
+        h, mi = int(m.group(1)), int(m.group(2))
+        if 0 <= h <= 23 and 0 <= mi <= 59:
+            return h + mi / 60.0
+    # 12h format e.g. "8:00 AM", "2:30 PM"
+    m = re.match(r"^(\d{1,2}):(\d{2})\s*(AM|PM)?$", t)
+    if m:
+        h, mi = int(m.group(1)), int(m.group(2))
+        ampm = (m.group(3) or "").strip()
+        if ampm == "PM" and h != 12:
+            h += 12
+        elif ampm == "AM" and h == 12:
+            h = 0
+        if 0 <= h <= 23 and 0 <= mi <= 59:
+            return h + mi / 60.0
+    return None
+
+
+def _parse_days_to_set(days: str) -> set[int]:
+    """
+    Parse day string (e.g. 'MWF', 'TTh', 'M W F') to set of weekday indices 0=Mon .. 4=Fri.
+    """
+    if not days or not isinstance(days, str):
+        return set()
+    s = days.strip().upper().replace(" ", "")
+    # Map single letters and Th
+    mapping = {"M": 0, "T": 1, "W": 2, "TH": 3, "F": 4}
+    result = set()
+    i = 0
+    while i < len(s):
+        if i + 1 < len(s) and s[i : i + 2] == "TH":
+            result.add(3)
+            i += 2
+        elif s[i] in mapping:
+            result.add(mapping[s[i]])
+            i += 1
+        else:
+            i += 1
+    return result
+
+
 def get_course_sections(dept: str, catalog_number: str) -> tuple[list[dict], str]:
     """
     Fetch all current sections for a course.
@@ -65,12 +116,14 @@ def get_course_sections(dept: str, catalog_number: str) -> tuple[list[dict], str
     catalog_number : 3-digit catalog number, e.g. "111", "110"
 
     Returns (sections, course_title) where sections is a list of dicts with keys:
-        section_number, instructor_name, section_type, credit_hours, mode
+        section_number, instructor_name, section_type, credit_hours, mode,
+        days (e.g. MWF, TTh), start_time, end_time (decimal hours 0-24),
+        start_time_display, end_time_display (original strings), room
     and course_title is the authoritative title from the BYU schedule (may be "").
+    Sections without meeting times (TBA) have days=set(), start/end=None; all sections included.
     """
     yearterm, session_id = _fetch_init_data()
 
-    # Build form-encoded data matching jQuery's nested object serialization
     post_data = {
         "sessionId": session_id,
         "searchObject[yearterm]":  yearterm,
@@ -91,12 +144,10 @@ def get_course_sections(dept: str, catalog_number: str) -> tuple[list[dict], str
     except Exception:
         return [], ""
 
-    # data is a dict keyed by "curriculumId-titleCode"
     sections: list[dict] = []
     course_title: str = ""
     if isinstance(data, dict):
         for _key, course in data.items():
-            # Capture course title from the top-level course object
             if not course_title:
                 course_title = (
                     course.get("title_long")
@@ -105,15 +156,58 @@ def get_course_sections(dept: str, catalog_number: str) -> tuple[list[dict], str
                     or ""
                 ).strip()
             for sec in course.get("sections", []):
-                name = (sec.get("instructor_name") or "").strip()
-                if name:
-                    sections.append({
-                        "section_number": sec.get("section_number", ""),
-                        "instructor_name": name,
-                        "section_type":   sec.get("section_type", ""),
-                        "credit_hours":   sec.get("credit_hours", ""),
-                        "mode":           sec.get("mode", ""),
-                    })
+                name = (sec.get("instructor_name") or sec.get("instructor") or "").strip() or "TBA"
+                days_raw = (
+                    sec.get("days")
+                    or sec.get("meeting_days")
+                    or sec.get("day")
+                    or sec.get("days_taught")
+                    or ""
+                )
+                start_raw = (
+                    sec.get("start_time")
+                    or sec.get("start")
+                    or sec.get("begin_time")
+                    or sec.get("begin")
+                    or ""
+                )
+                end_raw = (
+                    sec.get("end_time")
+                    or sec.get("end")
+                    or sec.get("stop_time")
+                    or sec.get("stop")
+                    or ""
+                )
+                room = (
+                    sec.get("room")
+                    or sec.get("location")
+                    or sec.get("building_room")
+                    or sec.get("building")
+                    or ""
+                )
+                if isinstance(room, dict):
+                    room = (room.get("room") or room.get("building") or "").strip()
+                if not isinstance(room, str):
+                    room = str(room) if room else ""
+
+                start_decimal = _parse_time_to_decimal(str(start_raw)) if start_raw else None
+                end_decimal = _parse_time_to_decimal(str(end_raw)) if end_raw else None
+                days_set = _parse_days_to_set(str(days_raw)) if days_raw else set()
+
+                sections.append({
+                    "section_number": sec.get("section_number", ""),
+                    "instructor_name": name,
+                    "section_type":   sec.get("section_type", ""),
+                    "credit_hours":   sec.get("credit_hours", ""),
+                    "mode":           sec.get("mode", ""),
+                    "days":           days_raw if isinstance(days_raw, str) else str(days_raw or ""),
+                    "days_set":       days_set,
+                    "start_time":    start_decimal,
+                    "end_time":       end_decimal,
+                    "start_time_display": str(start_raw).strip() if start_raw else "",
+                    "end_time_display": str(end_raw).strip() if end_raw else "",
+                    "room":           room.strip() if isinstance(room, str) else room,
+                })
 
     return sections, course_title
 
@@ -130,10 +224,30 @@ def get_instructors_for_course(dept: str, catalog_number: str) -> tuple[list[str
     total_sections = len(sections)
     seen: dict[str, bool] = {}
     for sec in sections:
-        name = sec["instructor_name"]
-        if name and name.upper() not in ("TBA", "STAFF", ""):
+        name = sec.get("instructor_name", "")
+        if name and str(name).upper() not in ("TBA", "STAFF", ""):
             seen[name] = True
     return list(seen.keys()), total_sections, course_title
+
+
+def attach_sections_to_courses(courses: list[dict]) -> list[dict]:
+    """
+    For each course dict (with course_code), fetch section details including
+    days, start_time, end_time, room and set course['sections'].
+    Modifies each course in place and returns the same list.
+    """
+    for course in courses:
+        code = course.get("course_code", "")
+        dept, num = parse_course_code(code)
+        if not dept or not num:
+            course["sections"] = []
+            continue
+        sections, title = get_course_sections(dept, num)
+        course["sections"] = sections
+        if title:
+            course["course_name"] = title
+        time.sleep(0.15)
+    return courses
 
 
 def parse_course_code(course_code: str) -> tuple[str, str]:
