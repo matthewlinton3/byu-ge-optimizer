@@ -9,6 +9,33 @@ from schedule_scraper import attach_sections_to_courses, parse_course_code
 import itertools
 
 
+def section_conflicts_with_blackout(sec: dict, blackout_slots: list) -> bool:
+    """
+    blackout_slots: list of (day, start_time, end_time) with day 0-4, times in decimal hours.
+    Returns True if the section overlaps any blackout slot.
+    """
+    if not blackout_slots:
+        return False
+    days_set = sec.get("days_set") or set()
+    start = sec.get("start_time")
+    end = sec.get("end_time")
+    if start is None or end is None or not days_set:
+        return False
+    for (bday, bstart, bend) in blackout_slots:
+        if bday not in days_set:
+            continue
+        if not (end <= bstart or bend <= start):
+            return True
+    return False
+
+
+def filter_sections_by_blackout(sections: list[dict], blackout_slots: list) -> list[dict]:
+    """Return only sections that do not conflict with any blackout slot."""
+    if not blackout_slots:
+        return sections
+    return [s for s in sections if not section_conflicts_with_blackout(s, blackout_slots)]
+
+
 def _sections_overlap(sec_a: dict, sec_b: dict) -> bool:
     """True if the two sections have overlapping meeting times."""
     days_a = sec_a.get("days_set") or set()

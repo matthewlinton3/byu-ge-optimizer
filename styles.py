@@ -251,6 +251,16 @@ hr { border-color: var(--byu-border) !important; margin: 1.25rem 0 !important; }
     border-radius: 10px !important;
     background: var(--byu-white) !important;
 }
+
+/* Blackout grid — weekly availability */
+.byu-blackout-grid { display: grid; grid-template-columns: 48px repeat(5, 1fr); font-family: 'IBM Plex Sans', sans-serif; font-size: 0.7rem; border: 1px solid var(--byu-border); border-radius: 8px; overflow: hidden; }
+.byu-blackout-cell { border-right: 1px solid var(--byu-border); border-bottom: 1px solid var(--byu-border); min-height: 22px; padding: 2px; }
+.byu-blackout-cell.time { background: var(--byu-gray); font-weight: 600; color: var(--byu-text-muted); }
+.byu-blackout-cell.day { background: var(--byu-gray); font-weight: 600; color: var(--byu-navy); text-align: center; }
+.byu-blackout-cell.blocked { background: var(--byu-navy); opacity: 0.85; cursor: pointer; }
+.byu-blackout-cell.available { background: #E8F5E9; cursor: pointer; }
+.byu-blackout-cell.blocked:hover { opacity: 1; }
+.byu-blackout-cell.available:hover { background: #C8E6C9; }
 </style>
 """
 
