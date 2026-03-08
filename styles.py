@@ -1,15 +1,28 @@
 """
 BYU GE Optimizer — Shared styles.
-Inject at top of app so CSS applies to all content. Must use unsafe_allow_html=True.
+
+inject_styles() must be called at the top of every page.
+
+Implementation note: CSS must NOT be pre-wrapped in <style> tags inside the
+string constant. inject_styles() wraps it in <style> tags itself and injects
+via st.html() (Streamlit 1.37+) so Streamlit never touches it as markdown.
+Passing a <style> block through st.markdown() causes Streamlit's markdown
+renderer to strip the <style> wrapper, leaving raw CSS rules as visible text.
 """
 
 import streamlit as st
 
-BYU_CSS = """
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
+# Google Fonts — injected separately as a plain <link> block.
+_FONTS = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans'
+    ':wght@400;500;600;700&display=swap" rel="stylesheet">'
+)
+
+# Pure CSS rules only — NO <style> wrapper, NO <link> tags.
+# inject_styles() wraps this in <style>...</style> before injection.
+_CSS = """
 :root {
     --byu-navy: #002E5D;
     --byu-royal: #0062B8;
@@ -261,10 +274,22 @@ hr { border-color: var(--byu-border) !important; margin: 1.25rem 0 !important; }
 .byu-blackout-cell.available { background: #E8F5E9; cursor: pointer; }
 .byu-blackout-cell.blocked:hover { opacity: 1; }
 .byu-blackout-cell.available:hover { background: #C8E6C9; }
-</style>
 """
 
 
-def inject_styles():
-    """Inject BYU CSS and fonts. Must be called at top of app before any other content. Uses unsafe_allow_html=True so styles apply."""
-    st.markdown(BYU_CSS, unsafe_allow_html=True)
+def inject_styles() -> None:
+    """
+    Inject BYU CSS and Google Fonts into the current Streamlit page.
+
+    Uses st.html() (Streamlit 1.37+) which injects raw HTML without any
+    markdown processing — the only reliable way to inject <style> blocks.
+    Falls back to st.markdown(unsafe_allow_html=True) for older versions.
+
+    inject_styles() itself wraps _CSS in <style> tags. The CSS constant
+    must NOT include a <style> wrapper or it will be shown as raw text.
+    """
+    style_block = f"<style>{_CSS}</style>"
+    if hasattr(st, "html"):
+        st.html(_FONTS + style_block)
+    else:
+        st.markdown(_FONTS + style_block, unsafe_allow_html=True)
