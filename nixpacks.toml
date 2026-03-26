@@ -1,0 +1,14 @@
+# nixpacks build configuration for Railway
+# Installs system packages needed at runtime.
+#
+# tesseract-ocr: required by pytesseract for OCR on scanned/image PDFs.
+#
+# chromium + chromedriver are commented out — they add ~400 MB and are only
+# needed for the headless Railway browser login flow (mymap_browser_login.py).
+# Uncomment them if that feature is enabled.
+[phases.setup]
+nixPkgs = [
+    "tesseract",
+    # "chromium",
+    # "chromedriver",
+]

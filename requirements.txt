@@ -9,3 +9,5 @@ pdfplumber
 selenium
 webdriver-manager
 rapidfuzz
+pytesseract
+Pillow

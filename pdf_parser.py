@@ -22,6 +22,14 @@ try:
 except ImportError:
     HAS_PDFPLUMBER = False
 
+try:
+    import pytesseract
+    from PIL import Image
+    import io as _io
+    HAS_OCR = True
+except ImportError:
+    HAS_OCR = False
+
 # ── Keyword patterns for each GE category ────────────────────────────────────
 # Each category maps to a list of regex patterns that might appear in the PDF.
 # BYU MyMap uses various labels depending on the year/major, so we cast a wide net.
@@ -146,20 +154,50 @@ COMPLETION_PATTERN = re.compile(
 )
 
 
+def _ocr_page_image(page) -> str:
+    """
+    Render a pdfplumber page to an image and run Tesseract OCR on it.
+    Returns extracted text or "" if OCR is unavailable or fails.
+    """
+    if not HAS_OCR:
+        return ""
+    try:
+        # pdfplumber pages have a .to_image() method that returns a PIL image
+        pil_img = page.to_image(resolution=200).original
+        text = pytesseract.image_to_string(pil_img)
+        return text or ""
+    except Exception:
+        return ""
+
+
 def extract_text_from_pdf(uploaded_file) -> str:
-    """Extract all text from an uploaded PDF using pdfplumber."""
+    """
+    Extract all text from an uploaded PDF using pdfplumber.
+    For pages that return no selectable text (scanned/image pages), falls back
+    to Tesseract OCR if pytesseract is available.
+    """
     if not HAS_PDFPLUMBER:
         raise ImportError("pdfplumber is not installed.")
 
     import io
     raw_bytes = uploaded_file.read()
     text_pages = []
+    ocr_pages = 0
 
     with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text()
-            if page_text:
+            if page_text and page_text.strip():
                 text_pages.append(page_text)
+            elif HAS_OCR:
+                # Page has no selectable text — try OCR
+                ocr_text = _ocr_page_image(page)
+                if ocr_text.strip():
+                    text_pages.append(ocr_text)
+                    ocr_pages += 1
+
+    if ocr_pages:
+        print(f"[pdf_parser] OCR applied to {ocr_pages} image-only page(s).")
 
     return "\n".join(text_pages)
 
@@ -225,7 +263,17 @@ def parse_degree_audit(uploaded_file) -> dict:
         result["raw_text"] = raw_text
 
         if not raw_text or len(raw_text.strip()) < 100:
-            result["error"] = "PDF appears to be empty or image-based (scanned). Cannot extract text."
+            if HAS_OCR:
+                result["error"] = (
+                    "PDF appears to be empty or fully image-based. "
+                    "OCR was attempted but returned too little text. "
+                    "Try a text-selectable PDF or use Manual Entry."
+                )
+            else:
+                result["error"] = (
+                    "PDF appears to be empty or image-based (scanned). "
+                    "Cannot extract text without OCR support. Use Manual Entry."
+                )
             return result
 
         category_results = find_completed_categories(raw_text)
