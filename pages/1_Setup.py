@@ -1,6 +1,6 @@
 """
 BYU GE Optimizer — Setup page (page 1).
-Hero, PDF upload, blackout times grid, preferences, CTA to Results.
+Hero, input tabs (MyMap login / PDF / Manual), blackout times, preferences, CTA.
 """
 
 import streamlit as st
@@ -9,6 +9,7 @@ from scraper import GE_CATEGORIES
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from ge_requirements import GE_REQUIREMENTS, is_category_complete
 from pathways import get_remaining_requirements
+from mymap_scraper import login_and_scrape
 
 inject_styles()
 
@@ -37,6 +38,7 @@ for key, default in [
     ("locked_courses", []),
     ("schedule_options", None),
     ("schedule_index", 0),
+    ("mymap_debug", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -74,63 +76,166 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-col_upload = st.columns([1, 3, 1])
-with col_upload[1]:
-    st.markdown(
-        '<div class="byu-privacy-note">&#128274; Your PDF is processed in-memory only and never stored or shared.</div>',
-        unsafe_allow_html=True,
-    )
-    with st.expander("How to get your MyMap degree audit PDF", expanded=False):
+tab_mymap, tab_pdf, tab_manual = st.tabs(
+    ["🔗 Log in to MyMap", "📄 Upload PDF", "✏️ Manual Entry"]
+)
+
+# ── Tab 1: MyMap direct login ──────────────────────────────────────
+with tab_mymap:
+    col_login = st.columns([1, 2, 1])
+    with col_login[1]:
         st.markdown("""
+<div class="byu-security-notice">
+  <span class="sec-icon">&#128274;</span>
+  <span class="sec-text">
+    <strong>Your credentials are never stored.</strong>
+    They are used only to make a single authenticated request to MyMap,
+    then immediately discarded. Nothing is saved to disk or transmitted
+    to any third party.
+  </span>
+</div>
+""", unsafe_allow_html=True)
+
+        with st.form("mymap_login_form"):
+            netid = st.text_input(
+                "BYU NetID",
+                placeholder="e.g. jsmith123",
+                autocomplete="username",
+            )
+            password = st.text_input(
+                "Password",
+                type="password",
+                placeholder="BYU account password",
+                autocomplete="current-password",
+            )
+            connect = st.form_submit_button(
+                "Connect to MyMap", type="primary", use_container_width=True
+            )
+
+        if connect:
+            if not netid or not password:
+                st.error("Please enter both your NetID and password.")
+            else:
+                with st.spinner("Connecting to MyMap..."):
+                    result = login_and_scrape(netid.strip(), password)
+
+                # Store debug info regardless of outcome
+                st.session_state.mymap_debug = result.get("debug")
+
+                if result.get("debug", {}).get("duo_detected"):
+                    st.markdown("""
+<div class="byu-duo-notice">
+  &#9888;&#65039; <strong>Duo two-factor authentication is required</strong> on your account.
+  Automated login cannot complete the Duo push step.
+  Please use the <strong>Upload PDF</strong> tab instead:
+  log in to MyMap manually, open Degree Audit, and save the page as a PDF.
+</div>
+""", unsafe_allow_html=True)
+
+                elif not result.get("success"):
+                    err = result.get("error") or "Unknown error connecting to MyMap."
+                    st.error(f"Login failed: {err}")
+                    st.caption("Double-check your NetID and password, or use the Upload PDF tab.")
+
+                else:
+                    courses_taken = result.get("completed_courses", set())
+                    completed = result.get("ge_completed") or _completed_from_courses(courses_taken)
+                    remaining = set(GE_CATEGORIES.keys()) - completed
+                    st.session_state.completed_categories = completed
+                    st.session_state.remaining_categories = remaining
+                    st.session_state.courses_taken = courses_taken
+                    st.session_state.data_source = "mymap"
+                    st.session_state.manual_override = False
+                    if courses_taken:
+                        st.session_state.pathway_state = get_remaining_requirements(
+                            courses_taken, completed
+                        )
+                    n_done = len(completed)
+                    n_rem = len(remaining)
+                    st.success(
+                        f"Connected! **{n_done}** GE categories completed, **{n_rem}** remaining."
+                    )
+
+        # Debug expander — shown after a successful or failed attempt
+        if st.session_state.mymap_debug:
+            with st.expander("Debug — MyMap parse details", expanded=False):
+                dbg = st.session_state.mymap_debug
+                st.write(f"**Duo detected:** {dbg.get('duo_detected', False)}")
+                warnings = dbg.get("warnings", [])
+                if warnings:
+                    for w in warnings:
+                        st.caption(f"&#9888; {w}")
+                raw = dbg.get("raw_html_snippet")
+                if raw:
+                    st.code(raw[:2000], language="html")
+
+# ── Tab 2: Upload PDF ──────────────────────────────────────────────
+with tab_pdf:
+    col_upload = st.columns([1, 3, 1])
+    with col_upload[1]:
+        st.markdown(
+            '<div class="byu-privacy-note">&#128274; Your PDF is processed in-memory only and never stored or shared.</div>',
+            unsafe_allow_html=True,
+        )
+        with st.expander("How to get your MyMap degree audit PDF", expanded=False):
+            st.markdown("""
 1. Go to [mymap.byu.edu](https://mymap.byu.edu) and log in.
 2. Open **Degree Audit** from the sidebar.
 3. In your browser use **Print &rarr; Save as PDF**.
 4. Upload the saved PDF below.
-        """)
-    uploaded_pdf = st.file_uploader(
-        "Upload BYU MyMap Degree Audit PDF",
-        type=["pdf"],
-        help="MyMap > Degree Audit > Print > Save as PDF",
-        key="setup_pdf_upload",
-    )
+            """)
+        uploaded_pdf = st.file_uploader(
+            "Upload BYU MyMap Degree Audit PDF",
+            type=["pdf"],
+            help="MyMap > Degree Audit > Print > Save as PDF",
+            key="setup_pdf_upload",
+        )
 
-if uploaded_pdf is not None:
-    if not HAS_PDFPLUMBER:
-        st.error("pdfplumber is not installed. Use Manual Entry below.")
-        st.session_state.manual_override = True
-    else:
-        with st.spinner("Parsing PDF..."):
-            parse_result = parse_degree_audit(uploaded_pdf)
-        if parse_result["error"]:
-            st.warning(f"Could not fully parse PDF: {parse_result['error']}. Use Manual Entry.")
-            st.session_state.manual_override = True
-        elif parse_result["parse_confidence"] == "low":
-            st.warning("Low confidence parse — verify below or use Manual Entry.")
-            st.session_state.completed_categories = parse_result["completed"]
-            st.session_state.remaining_categories = parse_result["remaining"]
+    if uploaded_pdf is not None:
+        if not HAS_PDFPLUMBER:
+            st.error("pdfplumber is not installed. Use Manual Entry instead.")
             st.session_state.manual_override = True
         else:
-            courses_taken = parse_result.get("courses_taken", set())
-            completed = _completed_from_courses(courses_taken)
-            remaining = set(GE_CATEGORIES.keys()) - completed
-            st.session_state.completed_categories = completed
-            st.session_state.remaining_categories = remaining
-            st.session_state.pdf_confidence = parse_result["parse_confidence"]
-            st.session_state.courses_taken = courses_taken
-            st.session_state.manual_override = False
-            st.session_state.data_source = "pdf"
-            if courses_taken:
-                st.session_state.pathway_state = get_remaining_requirements(courses_taken, completed)
-            st.success(
-                f"PDF parsed ({parse_result['parse_confidence']} confidence). "
-                f"**{len(completed)}** completed, **{len(courses_taken)}** courses detected."
-            )
+            with st.spinner("Parsing PDF..."):
+                parse_result = parse_degree_audit(uploaded_pdf)
+            if parse_result["error"]:
+                st.warning(
+                    f"Could not fully parse PDF: {parse_result['error']}. Use Manual Entry."
+                )
+                st.session_state.manual_override = True
+            elif parse_result["parse_confidence"] == "low":
+                st.warning("Low confidence parse — verify below or use Manual Entry.")
+                st.session_state.completed_categories = parse_result["completed"]
+                st.session_state.remaining_categories = parse_result["remaining"]
+                st.session_state.manual_override = True
+            else:
+                courses_taken = parse_result.get("courses_taken", set())
+                completed = _completed_from_courses(courses_taken)
+                remaining = set(GE_CATEGORIES.keys()) - completed
+                st.session_state.completed_categories = completed
+                st.session_state.remaining_categories = remaining
+                st.session_state.pdf_confidence = parse_result["parse_confidence"]
+                st.session_state.courses_taken = courses_taken
+                st.session_state.manual_override = False
+                st.session_state.data_source = "pdf"
+                if courses_taken:
+                    st.session_state.pathway_state = get_remaining_requirements(
+                        courses_taken, completed
+                    )
+                st.success(
+                    f"PDF parsed ({parse_result['parse_confidence']} confidence). "
+                    f"**{len(completed)}** completed, **{len(courses_taken)}** courses detected."
+                )
 
-# Manual entry
-with st.expander("Manual Entry — check off completed GE categories", expanded=st.session_state.manual_override):
-    st.caption("Check every requirement you have already completed.")
+# ── Tab 3: Manual Entry ────────────────────────────────────────────
+with tab_manual:
+    st.caption("Check every GE requirement you have already completed.")
     all_cats = sorted(GE_CATEGORIES.keys())
-    default_checked = sorted(st.session_state.completed_categories or st.session_state.manual_completed or set())
+    default_checked = sorted(
+        st.session_state.completed_categories
+        or st.session_state.manual_completed
+        or set()
+    )
     manual_cols = st.columns(2)
     manual_selected = set()
     for i, cat in enumerate(all_cats):
@@ -148,7 +253,7 @@ with st.expander("Manual Entry — check off completed GE categories", expanded=
         st.success(f"**{n_done}** complete, **{n_rem}** remaining.")
         st.rerun()
 
-# Progress pills when we have data
+# ── Progress pills (shown once any source has been set) ────────────
 if st.session_state.completed_categories is not None and st.session_state.data_source:
     _none_span = '<span style="color:#aaa;font-size:0.85rem;">None</span>'
     done_html = "".join(
@@ -264,13 +369,13 @@ st.divider()
 
 # ── CTA ────────────────────────────────────────────────────────────
 if st.session_state.completed_categories is None and not st.session_state.manual_completed:
-    st.warning("Upload your degree audit PDF or use Manual Entry before running the optimizer.")
+    st.warning("Connect to MyMap, upload your degree audit PDF, or use Manual Entry before running the optimizer.")
 else:
     st.session_state.blackout_slots = _blackout_slots_from_cells(st.session_state.blackout_cells)
 
 if st.button("Find My GE Courses", type="primary", key="goto_results"):
     if st.session_state.completed_categories is None and not st.session_state.manual_completed:
-        st.error("Please upload a PDF or use Manual Entry first.")
+        st.error("Please connect to MyMap, upload a PDF, or use Manual Entry first.")
     else:
         st.session_state.setup_done = True
         st.session_state.blackout_slots = _blackout_slots_from_cells(st.session_state.blackout_cells)
