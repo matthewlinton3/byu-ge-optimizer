@@ -57,15 +57,21 @@ GE_KEYWORDS = {
 
 COURSE_CODE_RE   = re.compile(r"\b([A-Z]{2,6}(?:\s+[A-Z])?\s+\d{3}[A-Z]?)\b")
 COMPLETION_RE    = re.compile(
-    r"satisfied|complete[d]?|fulfilled|\b(met)\b|✓|✔|passed|\b[ABCD][+-]?\b",
+    # DegreeWorks uses "MET", "SATISFIED", checkmarks; also letter grades
+    r"satisfied|complete[d]?|fulfilled|\bmet\b|✓|✔|✅|passed|"
+    r"\bstatus[:\s]+met\b|\bstatus[:\s]+satisfied\b|"
+    r"\b[ABCD][+-]?\b",
     re.IGNORECASE,
 )
 IN_PROGRESS_RE   = re.compile(
-    r"in[- ]progress|enrolled|current semester|in progress",
+    r"in[- ]progress|enrolled|current semester|in progress|"
+    r"\bstatus[:\s]+in[- ]progress\b",
     re.IGNORECASE,
 )
 NOT_DONE_RE      = re.compile(
-    r"not satisfied|not complete|not fulfilled|remaining|still needed|incomplete",
+    r"not satisfied|not complete|not fulfilled|not met|"
+    r"\bnotmet\b|remaining|still needed|incomplete|"
+    r"\bstatus[:\s]+not",
     re.IGNORECASE,
 )
 DUO_RE           = re.compile(r"duo[- ]?security|two.factor|2fa|mfa", re.IGNORECASE)
@@ -344,23 +350,36 @@ def _parse_all_pages(pages: dict, result: dict, debug: dict):
 def _parse_html_structure(html: str, result: dict, debug: dict):
     """
     Try to extract GE requirement blocks from the HTML DOM structure.
-    BYU MyMap / Ellucian Degree Works uses various class names — we try several.
+    BYU MyMap runs on Ellucian DegreeWorks — we try both DW-specific and
+    generic class names so the parser is robust to minor HTML changes.
     """
     soup = BeautifulSoup(html, "lxml")
 
-    # Common Degree Works / BYU MyMap selectors (try all)
+    # DegreeWorks-specific selectors first (most targeted), then generic fallbacks.
+    # DegreeWorks block classes: dw-req, dw-group, blockTitle, ruleTitle, reqTitle
     selectors = [
-        ".req-block",
-        ".audit-block",
-        ".requirement-block",
-        ".ge-block",
+        # Ellucian DegreeWorks (BYU MyMap uses this)
+        "[class*='dw-req']",
+        "[class*='dw-group']",
+        "[class*='blockTitle']",
+        "[class*='ruleTitle']",
+        "[class*='reqTitle']",
+        "[class*='req-block']",
+        "[class*='audit-block']",
+        "[class*='requirement-block']",
+        "[class*='ge-block']",
+        # Angular / React component class patterns DW uses
         "[class*='requirement']",
         "[class*='audit']",
         "[data-type='requirement']",
+        # Generic structural fallbacks
         "section",
         "article",
         ".card",
         ".panel",
+        # Table-based layouts (older DW versions)
+        "tr",
+        "td",
     ]
 
     found_blocks = []
@@ -369,10 +388,18 @@ def _parse_html_structure(html: str, result: dict, debug: dict):
         if blocks:
             debug["steps"].append(f"  HTML selector '{sel}' found {len(blocks)} blocks")
             found_blocks.extend(blocks)
-            if len(found_blocks) > 5:
-                break  # Stop when we have enough structure
+            # Collect a reasonable number of blocks — stop early only if we
+            # already have results for most categories (>= 8 of 13)
+            if len(result["raw_requirements"]) >= 8:
+                break
 
+    # Deduplicate by id() so the same element isn't processed twice
+    seen_ids: set[int] = set()
     for block in found_blocks:
+        if id(block) in seen_ids:
+            continue
+        seen_ids.add(id(block))
+
         block_text = block.get_text(separator=" ", strip=True)
         block_lower = block_text.lower()
 
@@ -384,10 +411,10 @@ def _parse_html_structure(html: str, result: dict, debug: dict):
                 if kw in block_lower:
                     status = _detect_status(block_text)
                     result["raw_requirements"][cat] = {
-                        "status":         status,
-                        "raw_text":       block_text[:500],
+                        "status":          status,
+                        "raw_text":        block_text[:500],
                         "matched_keyword": kw,
-                        "source":         "html_structure",
+                        "source":          "html_structure",
                     }
                     _apply_status(cat, status, result)
                     debug["steps"].append(f"  [HTML] Found '{cat}' → {status}")
