@@ -1,6 +1,6 @@
 """
 BYU GE Optimizer — Setup page (page 1).
-Hero, input tabs (MyMap login / PDF / Manual), blackout times, preferences, CTA.
+Dark-theme hero, input tabs (MyMap / PDF / Manual), blackout grid, preferences, CTA.
 """
 
 import streamlit as st
@@ -56,23 +56,25 @@ def _blackout_slots_from_cells(cells: set) -> list:
 
 
 # ── Hero ──────────────────────────────────────────────────────────
-# Use div.byu-hero-title (NOT <h1>) so Streamlit's heading color
-# overrides can't touch it. The hero CSS forces color: #FFFFFF.
 st.markdown("""
 <div class="byu-hero">
-  <div class="byu-hero-title">BYU GE Optimizer</div>
-  <div class="byu-hero-desc">
-    Find the minimum number of courses to finish your General Education
-    requirements&mdash;with professor ratings and a schedule that fits your life.
+  <div class="byu-hero-eyebrow">BYU General Education</div>
+  <div class="byu-hero-title">Find your shortest path to graduation</div>
+  <div class="byu-hero-sub">
+    Upload your degree audit or log in to MyMap &mdash; we&rsquo;ll find the minimum
+    courses to complete all 13 GE requirements, ranked by professor ratings.
   </div>
 </div>
 """, unsafe_allow_html=True)
 
 # ── Step 1: Import degree audit ───────────────────────────────────
 st.markdown("""
-<div class="byu-step">
+<div class="byu-step-header">
   <div class="byu-step-num">1</div>
-  <div class="byu-step-label">Import your degree audit</div>
+  <div>
+    <div class="byu-step-title">Import your degree audit</div>
+    <div class="byu-step-desc">Tell us what you&rsquo;ve taken so far</div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -119,23 +121,22 @@ with tab_mymap:
                 with st.spinner("Connecting to MyMap..."):
                     result = login_and_scrape(netid.strip(), password)
 
-                # Store debug info regardless of outcome
                 st.session_state.mymap_debug = result.get("debug")
 
                 if result.get("debug", {}).get("duo_detected"):
                     st.markdown("""
 <div class="byu-duo-notice">
-  &#9888;&#65039; <strong>Duo two-factor authentication is required</strong> on your account.
-  Automated login cannot complete the Duo push step.
-  Please use the <strong>Upload PDF</strong> tab instead:
-  log in to MyMap manually, open Degree Audit, and save the page as a PDF.
+  &#9888;&#65039; <strong>Duo two-factor authentication detected.</strong>
+  Automated login can&rsquo;t complete the Duo push step.
+  Please use <strong>Upload PDF</strong> instead: log in to MyMap manually,
+  open Degree Audit, and save the page as a PDF.
 </div>
 """, unsafe_allow_html=True)
 
                 elif not result.get("success"):
                     err = result.get("error") or "Unknown error connecting to MyMap."
                     st.error(f"Login failed: {err}")
-                    st.caption("Double-check your NetID and password, or use the Upload PDF tab.")
+                    st.caption("Double-check your NetID and password, or switch to the Upload PDF tab.")
 
                 else:
                     courses_taken = result.get("completed_courses", set())
@@ -150,21 +151,17 @@ with tab_mymap:
                         st.session_state.pathway_state = get_remaining_requirements(
                             courses_taken, completed
                         )
-                    n_done = len(completed)
-                    n_rem = len(remaining)
                     st.success(
-                        f"Connected! **{n_done}** GE categories completed, **{n_rem}** remaining."
+                        f"Connected! **{len(completed)}** GE categories completed, "
+                        f"**{len(remaining)}** remaining."
                     )
 
-        # Debug expander — shown after a successful or failed attempt
         if st.session_state.mymap_debug:
             with st.expander("Debug — MyMap parse details", expanded=False):
                 dbg = st.session_state.mymap_debug
                 st.write(f"**Duo detected:** {dbg.get('duo_detected', False)}")
-                warnings = dbg.get("warnings", [])
-                if warnings:
-                    for w in warnings:
-                        st.caption(f"&#9888; {w}")
+                for w in dbg.get("warnings", []):
+                    st.caption(f"&#9888; {w}")
                 raw = dbg.get("raw_html_snippet")
                 if raw:
                     st.code(raw[:2000], language="html")
@@ -253,9 +250,9 @@ with tab_manual:
         st.success(f"**{n_done}** complete, **{n_rem}** remaining.")
         st.rerun()
 
-# ── Progress pills (shown once any source has been set) ────────────
+# ── Progress pills ─────────────────────────────────────────────────
 if st.session_state.completed_categories is not None and st.session_state.data_source:
-    _none_span = '<span style="color:#aaa;font-size:0.85rem;">None</span>'
+    _none_span = '<span style="color:#5A6478;font-size:0.85rem;">None</span>'
     done_html = "".join(
         f'<span class="byu-pill byu-pill-done">&#10003; {cat}</span>'
         for cat in sorted(st.session_state.completed_categories)
@@ -277,12 +274,14 @@ st.divider()
 
 # ── Step 2: Blackout times ─────────────────────────────────────────
 st.markdown("""
-<div class="byu-step">
+<div class="byu-step-header">
   <div class="byu-step-num">2</div>
-  <div class="byu-step-label">When are you unavailable?</div>
+  <div>
+    <div class="byu-step-title">When are you unavailable?</div>
+    <div class="byu-step-desc">Blocked slots are excluded from recommended sections</div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
-st.caption("Click a slot to block it. Blocked times will be excluded from recommended sections.")
 
 blackout_cells = set(st.session_state.blackout_cells)
 qf1, qf2, qf3 = st.columns(3)
@@ -336,9 +335,12 @@ st.divider()
 
 # ── Step 3: Preferences ────────────────────────────────────────────
 st.markdown("""
-<div class="byu-step">
+<div class="byu-step-header">
   <div class="byu-step-num">3</div>
-  <div class="byu-step-label">Preferences</div>
+  <div>
+    <div class="byu-step-title">Preferences</div>
+    <div class="byu-step-desc">Tune the optimizer to your schedule</div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 

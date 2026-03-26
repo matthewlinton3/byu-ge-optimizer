@@ -1,6 +1,6 @@
 """
 BYU GE Optimizer — Results page (page 2).
-Reads session state from Setup; runs optimizer; shows course cards with lock/unlock and schedule generator.
+Dark theme: course cards with RMP badges, week-view calendar, GE coverage.
 """
 
 import streamlit as st
@@ -39,13 +39,12 @@ preferred_days = st.session_state.get("preferred_days") or "No preference"
 preferred_start = st.session_state.get("preferred_start") or "Mid"
 minimize_gaps = st.session_state.get("minimize_gaps", True)
 
-# ── Back button + inline options bar ──────────────────────────────
+# ── Back button + options ──────────────────────────────────────────
 back_col, opt_col = st.columns([1, 3])
 with back_col:
     if st.button("Back to Setup", key="back_setup"):
         st.switch_page("pages/1_Setup.py")
 
-# Options in a compact expander instead of sidebar
 with st.expander("Options", expanded=False):
     opt1, opt2, opt3, opt4 = st.columns(4)
     with opt1:
@@ -64,8 +63,7 @@ with st.expander("Options", expanded=False):
 
 st.markdown("## Results")
 
-# ── GE completion status pills ─────────────────────────────────────
-st.markdown("### GE progress")
+# ── GE completion status ───────────────────────────────────────────
 prog_col1, prog_col2 = st.columns(2)
 with prog_col1:
     st.markdown("**Completed**")
@@ -73,14 +71,14 @@ with prog_col1:
         f'<span class="byu-pill byu-pill-done">&#10003; {cat}</span>'
         for cat in sorted(completed_categories)
     )
-    st.markdown(f'<div class="ge-pills">{done_pills or "&#8212;"}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div>{done_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 with prog_col2:
     st.markdown("**Remaining**")
     rem_pills = "".join(
         f'<span class="byu-pill byu-pill-remaining">{cat}</span>'
         for cat in sorted(remaining_categories)
     )
-    st.markdown(f'<div class="ge-pills">{rem_pills or "&#8212;"}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div>{rem_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 
 
 def run_optimizer(use_ilp, skip_rmp, refresh, remaining_reqs, courses_taken_set):
@@ -104,7 +102,6 @@ def run_optimizer(use_ilp, skip_rmp, refresh, remaining_reqs, courses_taken_set)
     return selected, uncovered
 
 
-# Run optimizer on first load or when we need fresh results
 locked_codes = {c["course_code"] for c in locked_courses}
 locked_covered = set()
 for lc in locked_courses:
@@ -119,7 +116,6 @@ if st.session_state.get("results") is None or st.session_state.get("uncovered") 
     st.session_state.uncovered = uncovered
     st.rerun()
 
-# Recompute selected/uncovered when we have locked courses
 if not locked_courses:
     selected = list(st.session_state.results)
     uncovered = st.session_state.uncovered
@@ -164,13 +160,13 @@ total_credits = sum(c.get("credit_hours", 3) for c in selected) + sum(
 )
 double_dippers = [c for c in selected if len(c.get("ge_categories_all", c.get("ge_categories", []))) > 1]
 
-# ── Locked courses section ──────────────────────────────────────────
+# ── Locked courses ─────────────────────────────────────────────────
 if locked_courses:
-    lock_header_col1, lock_header_col2 = st.columns([3, 1])
-    with lock_header_col1:
-        st.markdown("### ✅ Your Locked Courses")
-    with lock_header_col2:
-        if st.button("Reset All", key="reset_locked", help="Clear all locked courses"):
+    lock_col1, lock_col2 = st.columns([3, 1])
+    with lock_col1:
+        st.markdown("### &#10003; Locked Courses")
+    with lock_col2:
+        if st.button("Reset All", key="reset_locked"):
             st.session_state.locked_courses = []
             st.session_state.schedule_options = None
             st.rerun()
@@ -181,38 +177,49 @@ if locked_courses:
         with row1:
             st.markdown(
                 f'<div class="byu-locked-section">'
-                f'<span class="course-code">{lc["course_code"]}</span> — {lc["course_name"]} '
-                f'<div class="ge-pills">{pills}</div></div>',
+                f'<span class="course-code">{lc["course_code"]}</span>'
+                f' &mdash; {lc["course_name"]}'
+                f'<div style="margin-top:0.5rem">{pills}</div></div>',
                 unsafe_allow_html=True,
             )
         with row2:
-            if st.button("🔓 Unlock", key=f"unlock_{lc['course_code']}"):
+            if st.button("Unlock", key=f"unlock_{lc['course_code']}"):
                 st.session_state.locked_courses = [
-                    x for x in st.session_state.locked_courses if x["course_code"] != lc["course_code"]
+                    x for x in st.session_state.locked_courses
+                    if x["course_code"] != lc["course_code"]
                 ]
                 st.session_state.schedule_options = None
                 st.rerun()
     st.markdown("")
 
-# Progress: completed | covered | uncovered
-st.markdown("### GE coverage")
+# ── GE coverage summary ────────────────────────────────────────────
+st.markdown("### GE Coverage")
 p1, p2, p3 = st.columns(3)
 with p1:
     st.markdown("**Completed**")
-    done_pills = "".join(f'<span class="byu-pill byu-pill-done">&#10003; {cat}</span>' for cat in sorted(completed_categories))
-    st.markdown(f'<div class="ge-pills">{done_pills or "&#8212;"}</div>', unsafe_allow_html=True)
+    done_pills = "".join(
+        f'<span class="byu-pill byu-pill-done">&#10003; {cat}</span>'
+        for cat in sorted(completed_categories)
+    )
+    st.markdown(f'<div>{done_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 with p2:
     st.markdown("**Covered by recommendations**")
-    cov_pills = "".join(f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in sorted(covered_by_optimizer))
-    st.markdown(f'<div class="ge-pills">{cov_pills or "&#8212;"}</div>', unsafe_allow_html=True)
+    cov_pills = "".join(
+        f'<span class="byu-pill byu-pill-remaining">{cat}</span>'
+        for cat in sorted(covered_by_optimizer)
+    )
+    st.markdown(f'<div>{cov_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 with p3:
     st.markdown("**Still uncovered**")
-    unc_pills = "".join(f'<span class="byu-pill byu-pill-uncovered">{cat}</span>' for cat in sorted(uncovered))
-    st.markdown(f'<div class="ge-pills">{unc_pills or "&#8212;"}</div>', unsafe_allow_html=True)
+    unc_pills = "".join(
+        f'<span class="byu-pill byu-pill-uncovered">{cat}</span>'
+        for cat in sorted(uncovered)
+    )
+    st.markdown(f'<div>{unc_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 
 total_done = len(completed_categories) + len(covered_by_optimizer)
 st.progress(total_done / len(all_cats))
-st.caption(f"Overall: {total_done}/{len(all_cats)} categories")
+st.caption(f"Overall: {total_done}/{len(all_cats)} categories covered")
 
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Courses to take", len(locked_courses) + len(selected))
@@ -223,44 +230,190 @@ m5.metric("Double-dippers", len(double_dippers))
 
 st.divider()
 
-# ── Recommended course cards (with sections filtered by blackout) ───
-tab1, tab2, tab3 = st.tabs(["Recommended courses", "Full GE map", "Double-dippers"])
+
+# ── Helpers ────────────────────────────────────────────────────────
+def _rmp_badge(profs: list) -> str:
+    """Return the best RMP badge HTML across a professor list."""
+    ratings = [p.get("rating") for p in profs if p.get("rating") is not None]
+    if not ratings:
+        return '<span class="rmp-badge rmp-none">No rating</span>'
+    best = max(ratings)
+    if best >= 4.0:
+        cls = "rmp-good"
+    elif best >= 3.0:
+        cls = "rmp-mid"
+    else:
+        cls = "rmp-bad"
+    return f'<span class="rmp-badge {cls}">&#9733; {best:.1f}</span>'
+
+
+def render_calendar(selection: list) -> None:
+    """Render a dark-themed week-view calendar from a list of (course, section) tuples."""
+    DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    START_HOUR = 7
+    END_HOUR = 20
+    SLOT_MINS = 30
+
+    COLORS = [
+        ("#1e3a5f", "#4a9eff"),
+        ("#1e3d2f", "#4ade80"),
+        ("#3d1e3a", "#e879f9"),
+        ("#3d2e1e", "#fb923c"),
+        ("#1e3d3a", "#2dd4bf"),
+        ("#3d1e1e", "#f87171"),
+    ]
+
+    # Build half-hour slot list
+    slots = []
+    sh, sm = START_HOUR, 0
+    while sh < END_HOUR:
+        slots.append((sh, sm))
+        sm += SLOT_MINS
+        if sm >= 60:
+            sm = 0
+            sh += 1
+
+    # Map (day_idx, slot_idx) -> cell data
+    course_cells: dict = {}
+    for i, (course, sec) in enumerate(selection):
+        code = course.get("course_code", "")
+        color_bg, color_text = COLORS[i % len(COLORS)]
+        days_set = sec.get("days_set") or set()
+        start_t = sec.get("start_time")
+        end_t = sec.get("end_time")
+        room = (sec.get("room") or "").strip()
+
+        if start_t is None or end_t is None:
+            continue
+
+        for j, (h, m) in enumerate(slots):
+            slot_start = h + m / 60.0
+            slot_end = slot_start + SLOT_MINS / 60.0
+            if slot_start >= end_t or slot_end <= start_t:
+                continue
+            is_start = slot_start <= start_t < slot_end
+            for day_idx in range(5):
+                if day_idx in days_set and (day_idx, j) not in course_cells:
+                    course_cells[(day_idx, j)] = {
+                        "code": code,
+                        "room": room,
+                        "color_bg": color_bg,
+                        "color_text": color_text,
+                        "is_start": is_start,
+                    }
+
+    html = """
+<style>
+.cal-wrap { overflow-x: auto; margin: 1.5rem 0; }
+.cal-table { border-collapse: collapse; width: 100%; min-width: 500px;
+             font-family: 'IBM Plex Sans', sans-serif; font-size: 0.78rem; }
+.cal-table th { background: #1A1F2E; color: #8892A4; padding: 0.5rem;
+                text-align: center; font-weight: 600; letter-spacing: 0.05em;
+                border: 1px solid #2D3548; }
+.cal-table td { border: 1px solid #2D3548; padding: 0; vertical-align: top; height: 28px; }
+.cal-time { background: #12161F; color: #5A6478; padding: 0.25rem 0.5rem;
+            text-align: right; font-size: 0.7rem; white-space: nowrap; width: 48px; }
+.cal-hour-line td { border-top: 1px solid #2D3548 !important; }
+.cal-half td { border-top: 1px dashed #1E2535 !important; }
+.cal-cell-empty { background: #0F1117; }
+.cal-block { border-radius: 4px; padding: 3px 6px; height: 100%;
+             display: flex; flex-direction: column; justify-content: flex-start;
+             font-weight: 600; font-size: 0.7rem; line-height: 1.3; overflow: hidden; }
+.cal-room  { font-weight: 400; font-size: 0.62rem; opacity: 0.8;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+<div class="cal-wrap"><table class="cal-table"><thead><tr>
+<th style="width:48px"></th>
+"""
+    for day in DAYS:
+        html += f"<th>{day}</th>"
+    html += "</tr></thead><tbody>"
+
+    for j, (h, m) in enumerate(slots):
+        row_cls = "cal-hour-line" if m == 0 else "cal-half"
+        if m == 0:
+            h12 = h if h <= 12 else h - 12
+            ampm = "am" if h < 12 else "pm"
+            time_str = f"{h12}:{m:02d}{ampm}"
+        else:
+            time_str = ""
+        html += f'<tr class="{row_cls}"><td class="cal-time">{time_str}</td>'
+        for d in range(5):
+            cell = course_cells.get((d, j))
+            if cell:
+                label = ""
+                if cell["is_start"]:
+                    label = cell["code"]
+                    if cell["room"]:
+                        label += f'<span class="cal-room">{cell["room"]}</span>'
+                else:
+                    label = "&nbsp;"
+                html += (
+                    f'<td style="background:{cell["color_bg"]};padding:0">'
+                    f'<div class="cal-block" style="color:{cell["color_text"]}">'
+                    f'{label}</div></td>'
+                )
+            else:
+                html += '<td class="cal-cell-empty"></td>'
+        html += "</tr>"
+
+    html += "</tbody></table></div>"
+    if hasattr(st, "html"):
+        st.html(html)
+    else:
+        st.markdown(html, unsafe_allow_html=True)
+
+
+# ── Results tabs ───────────────────────────────────────────────────
+tab1, tab2, tab3 = st.tabs(["Recommended Courses", "Full GE Map", "Double-Dippers"])
 
 with tab1:
-    st.caption(f"Sorted by: **{sort_priority}**. Sections that conflict with your blackout times are hidden.")
+    st.caption(f"Sorted by: **{sort_priority}**. Sections conflicting with your blackout times are hidden.")
     if locked_courses:
-        st.caption("Lock courses you want to keep; the optimizer will recommend the best options for the rest.")
+        st.caption("Lock courses you want to keep; the optimizer recommends the best options for the rest.")
     if not remaining_after_lock and locked_courses:
         st.success("All remaining GE categories are covered by your locked courses.")
 
     for c in selected:
         cats = c.get("ge_categories", [])
-        ge_pills_html = "".join(
-            f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in cats
-        )
         profs = c.get("professors", [])
-        prof_rows = []
+        badge = _rmp_badge(profs)
+        ge_pills_html = "".join(f'<span class="ge-pill">{cat}</span>' for cat in cats)
+
+        # Professor rows
+        prof_rows_html = ""
         if profs:
             for p in profs:
-                rating = p.get("rating") or 0
+                rating = p.get("rating")
                 diff = p.get("difficulty")
                 wta = p.get("would_take_again")
-                star_str = f'<span class="stars">★ {rating:.1f}</span>' if rating else "—"
+                star_str = f'<span class="stars">&#9733; {rating:.1f}</span>' if rating else ""
                 diff_str = f"Difficulty {diff:.1f}/5" if diff else ""
                 wta_str = f"{wta:.0f}% would take again" if wta is not None and wta >= 0 else ""
-                parts = [f'<span class="prof-name">{p.get("name", "—")}</span>', star_str, diff_str, wta_str]
-                prof_rows.append("<div class=\"prof-row\">" + " · ".join(p for p in parts if p) + "</div>")
+                parts = [f'<span class="prof-name">{p.get("name", "")}</span>']
+                if star_str:
+                    parts.append(star_str)
+                if diff_str:
+                    parts.append(diff_str)
+                if wta_str:
+                    parts.append(wta_str)
+                prof_rows_html += f'<div class="prof-row">{" &middot; ".join(parts)}</div>'
         else:
-            prof_rows.append("<div class=\"prof-row\">No professor ratings yet</div>")
+            prof_rows_html = '<div class="prof-row" style="color:#5A6478">No professor ratings yet</div>'
+
         card_html = f"""
-        <div class="byu-course-card">
-            <div class="course-title"><span class="course-code">{c['course_code']}</span> — {c['course_name']}</div>
-            <div class="ge-pills">{ge_pills_html}</div>
-            {"".join(prof_rows)}
-        </div>
-        """
+<div class="course-card">
+  <div class="course-card-header">
+    <span class="course-code">{c['course_code']}</span>
+    {badge}
+  </div>
+  <div class="course-name">{c['course_name']}</div>
+  <div class="ge-pills">{ge_pills_html}</div>
+  {prof_rows_html}
+</div>
+"""
         st.markdown(card_html, unsafe_allow_html=True)
-        if st.button("🔒 Lock this course", key=f"lock_{c['course_code']}"):
+        if st.button("Lock this course", key=f"lock_{c['course_code']}"):
             if c["course_code"] not in locked_codes:
                 st.session_state.locked_courses = st.session_state.locked_courses + [dict(c)]
                 st.session_state.schedule_options = None
@@ -288,7 +441,13 @@ with tab1:
                 "Professor": "—", "Rating": None, "Difficulty": None, "Would Take Again": "—",
             })
     df_export = pd.DataFrame(rows)
-    st.download_button("Download CSV", data=df_export.to_csv(index=False), file_name="byu_ge_optimizer_results.csv", mime="text/csv", key="dl_csv")
+    st.download_button(
+        "Download CSV",
+        data=df_export.to_csv(index=False),
+        file_name="byu_ge_optimizer_results.csv",
+        mime="text/csv",
+        key="dl_csv",
+    )
 
 with tab2:
     col_a, col_b, col_c = st.columns(3)
@@ -302,7 +461,11 @@ with tab2:
             courses_for = [c for c in selected if cat in c.get("ge_categories", [])]
             courses_for += [c for c in locked_courses if cat in c.get("ge_categories", c.get("ge_categories_all", []))]
             codes = ", ".join(c["course_code"] for c in courses_for)
-            st.markdown(f'<span class="byu-pill byu-pill-remaining">{cat}</span> <span style="color:#666;font-size:0.8rem;">→ {codes}</span>', unsafe_allow_html=True)
+            st.markdown(
+                f'<span class="byu-pill byu-pill-remaining">{cat}</span>'
+                f'<span style="color:#5A6478;font-size:0.8rem;"> &rarr; {codes}</span>',
+                unsafe_allow_html=True,
+            )
     with col_c:
         st.markdown("**Uncovered**")
         if uncovered:
@@ -315,25 +478,40 @@ with tab2:
 with tab3:
     if double_dippers:
         for c in sorted(double_dippers, key=lambda x: -len(x.get("ge_categories_all", x.get("ge_categories", [])))):
-            cats_all = c.get("ge_categories_all", c.get("ge_categories", []))
             cats_rem = c.get("ge_categories", [])
-            with st.container(border=True):
-                st.markdown(f"**{c['course_code']}** — {c['course_name']}")
-                pills = "".join(f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in cats_rem)
-                st.markdown(pills, unsafe_allow_html=True)
-                st.caption(f"Covers {len(cats_all)} categories · {len(cats_rem)} still needed")
+            cats_all = c.get("ge_categories_all", cats_rem)
+            profs = c.get("professors", [])
+            badge = _rmp_badge(profs)
+            ge_pills_html = "".join(f'<span class="ge-pill">{cat}</span>' for cat in cats_rem)
+            st.markdown(f"""
+<div class="course-card">
+  <div class="course-card-header">
+    <span class="course-code">{c['course_code']}</span>
+    {badge}
+  </div>
+  <div class="course-name">{c['course_name']}</div>
+  <div class="ge-pills">{ge_pills_html}</div>
+  <div style="margin-top:0.5rem;font-size:0.75rem;color:#5A6478">
+    Covers {len(cats_all)} categories &middot; {len(cats_rem)} still needed
+  </div>
+</div>
+""", unsafe_allow_html=True)
     else:
         st.info("No double-dipping courses in this selection.")
 
 st.divider()
 
-# ── Schedule Generator (locked courses only, respect blackout) ───────
+# ── Schedule Generator ─────────────────────────────────────────────
 if locked_courses:
     st.markdown("## Schedule Generator")
     st.caption("Conflict-free section combinations for your locked courses, excluding your blackout times.")
 
     start_options = ["Early (7–9am)", "Mid (9–11am)", "Late (11am+)"]
-    start_idx = min(["Early", "Mid", "Late"].index(preferred_start) if preferred_start in ("Early", "Mid", "Late") else 1, 2)
+    start_idx = min(
+        ["Early", "Mid", "Late"].index(preferred_start)
+        if preferred_start in ("Early", "Mid", "Late") else 1,
+        2,
+    )
     pref_start_label = st.radio(
         "Preferred start time",
         options=start_options,
@@ -357,7 +535,6 @@ if locked_courses:
         locked_copy = [dict(c) for c in locked_courses]
         with st.spinner("Fetching section times from BYU class schedule..."):
             attach_sections_to_courses(locked_copy)
-        # Filter out sections that conflict with blackout
         for co in locked_copy:
             co["sections"] = filter_sections_by_blackout(co.get("sections", []), blackout_slots)
         combos = _enumerate_combinations(locked_copy)
@@ -376,51 +553,24 @@ if locked_courses:
         opts = st.session_state.schedule_options
         idx = st.session_state.schedule_index
         names = [f"Option {i+1}" for i in range(len(opts))]
-        sel = st.radio("Schedule option", names, index=min(idx, len(opts) - 1), key="sched_choice", horizontal=True)
-        st.session_state.schedule_index = names.index(sel)
+        sel_name = st.radio(
+            "Schedule option",
+            names,
+            index=min(idx, len(opts) - 1),
+            key="sched_choice",
+            horizontal=True,
+        )
+        st.session_state.schedule_index = names.index(sel_name)
         selection = opts[st.session_state.schedule_index]
-        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
-        colors = ["#0062B8", "#1B5E20", "#B71C1C", "#E65100", "#4A148C", "#004D40"]
-        course_colors = {c[0].get("course_code"): colors[i % len(colors)] for i, c in enumerate(selection)}
 
-        def _time_label(slot):
-            h = 7 + slot // 2
-            m = (slot % 2) * 30
-            if h < 12:
-                return f"{h}:{m:02d} am"
-            if h == 12:
-                return f"12:{m:02d} pm"
-            return f"{h-12}:{m:02d} pm"
-
-        grid_html = '<div class="sched-grid" style="grid-template-rows: 32px repeat(22, 28px);">'
-        grid_html += '<div class="sched-cell time"></div>' + "".join(f'<div class="sched-cell day">{d}</div>' for d in day_names)
-        for slot in range(22):
-            grid_html += f'<div class="sched-cell time">{_time_label(slot)}</div>'
-            for day_idx in range(5):
-                parts = []
-                for course, sec in selection:
-                    days_set = sec.get("days_set") or set()
-                    if day_idx not in days_set:
-                        continue
-                    start_t = sec.get("start_time")
-                    end_t = sec.get("end_time")
-                    if start_t is None or end_t is None:
-                        continue
-                    slot_start = 7 + slot / 2
-                    slot_end = 7 + (slot + 1) / 2
-                    if slot_start < end_t and slot_end > start_t:
-                        color = course_colors.get(course.get("course_code"), "#666")
-                        parts.append(f'<div class="sched-block" style="background:{color}"><span class="code">{course.get("course_code", "")}</span><br>{sec.get("instructor_name", "TBA")}<br>{sec.get("room", "") or "—"}</div>')
-                grid_html += f'<div class="sched-cell">{"".join(parts)}</div>'
-        grid_html += "</div>"
-        st.markdown(grid_html, unsafe_allow_html=True)
+        render_calendar(selection)
 
         export_text = format_schedule_for_export(selection)
         st.download_button(
-            "Copy to Clipboard / Download as text",
+            "Download schedule as text",
             data=export_text,
             file_name="byu_schedule.txt",
             mime="text/plain",
             key="sched_export",
         )
-        st.caption("Paste into Google Calendar or import as plain text. Each block shows course code, professor, and room.")
+        st.caption("Each block shows course code and room. Import into Google Calendar or paste as plain text.")
