@@ -8,6 +8,7 @@
 # Uncomment them if that feature is enabled.
 [phases.setup]
 nixPkgs = [
+    "python311",
     "tesseract",
     # "chromium",
     # "chromedriver",
