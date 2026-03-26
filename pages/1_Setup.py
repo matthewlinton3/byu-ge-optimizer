@@ -26,8 +26,8 @@ for key, default in [
     ("pdf_parse_error", None),
     ("manual_override", False),
     ("manual_completed", set()),
-    ("blackout_cells", set()),  # set of (day_index 0-4, slot_index 0-27)
-    ("blackout_slots", []),     # list of (day, start_time, end_time) for Results
+    ("blackout_cells", set()),
+    ("blackout_slots", []),
     ("preferred_days", "No preference"),
     ("preferred_start", "Mid"),
     ("minimize_gaps", True),
@@ -47,7 +47,6 @@ def _completed_from_courses(courses_taken: set) -> set:
 
 
 def _blackout_slots_from_cells(cells: set) -> list:
-    """Convert set of (day, slot_index) to list of (day, start_time, end_time)."""
     return [
         (day, 7.0 + slot * 0.5, 7.0 + (slot + 1) * 0.5)
         for (day, slot) in cells
@@ -55,33 +54,45 @@ def _blackout_slots_from_cells(cells: set) -> list:
 
 
 # ── Hero ──────────────────────────────────────────────────────────
+# Use div.byu-hero-title (NOT <h1>) so Streamlit's heading color
+# overrides can't touch it. The hero CSS forces color: #FFFFFF.
 st.markdown("""
 <div class="byu-hero">
-    <h1>BYU GE Optimizer</h1>
-    <p class="byu-hero-desc">Find the minimum number of courses to finish your General Education requirements—with professor ratings and a schedule that fits your availability.</p>
+  <div class="byu-hero-title">BYU GE Optimizer</div>
+  <div class="byu-hero-desc">
+    Find the minimum number of courses to finish your General Education
+    requirements&mdash;with professor ratings and a schedule that fits your life.
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ── PDF upload card ───────────────────────────────────────────────
-st.markdown("## Step 1 — Import Your Degree Audit")
-st.markdown('<div class="byu-card byu-card-upload">', unsafe_allow_html=True)
-col_upload = st.columns([1, 2, 1])
+# ── Step 1: Import degree audit ───────────────────────────────────
+st.markdown("""
+<div class="byu-step">
+  <div class="byu-step-num">1</div>
+  <div class="byu-step-label">Import your degree audit</div>
+</div>
+""", unsafe_allow_html=True)
+
+col_upload = st.columns([1, 3, 1])
 with col_upload[1]:
-    st.info("🔒 Your PDF is processed in-memory only and never stored or shared.")
+    st.markdown(
+        '<div class="byu-privacy-note">&#128274; Your PDF is processed in-memory only and never stored or shared.</div>',
+        unsafe_allow_html=True,
+    )
     with st.expander("How to get your MyMap degree audit PDF", expanded=False):
         st.markdown("""
 1. Go to [mymap.byu.edu](https://mymap.byu.edu) and log in.
 2. Open **Degree Audit** from the sidebar.
-3. Use **Print → Save as PDF** in your browser.
+3. In your browser use **Print &rarr; Save as PDF**.
 4. Upload the saved PDF below.
         """)
     uploaded_pdf = st.file_uploader(
         "Upload BYU MyMap Degree Audit PDF",
         type=["pdf"],
-        help="MyMap → Degree Audit → Save as PDF",
+        help="MyMap > Degree Audit > Print > Save as PDF",
         key="setup_pdf_upload",
     )
-st.markdown("</div>", unsafe_allow_html=True)
 
 if uploaded_pdf is not None:
     if not HAS_PDFPLUMBER:
@@ -115,9 +126,9 @@ if uploaded_pdf is not None:
                 f"**{len(completed)}** completed, **{len(courses_taken)}** courses detected."
             )
 
-# Manual entry tab
-with st.expander("✏️ Manual Entry — select completed GE categories", expanded=st.session_state.manual_override):
-    st.caption("Check every requirement you've already completed.")
+# Manual entry
+with st.expander("Manual Entry — check off completed GE categories", expanded=st.session_state.manual_override):
+    st.caption("Check every requirement you have already completed.")
     all_cats = sorted(GE_CATEGORIES.keys())
     default_checked = sorted(st.session_state.completed_categories or st.session_state.manual_completed or set())
     manual_cols = st.columns(2)
@@ -132,47 +143,55 @@ with st.expander("✏️ Manual Entry — select completed GE categories", expan
         st.session_state.remaining_categories = set(GE_CATEGORIES.keys()) - manual_selected
         st.session_state.data_source = "manual"
         st.session_state.manual_override = False
-        st.success(f"**{len(manual_selected)}** complete → **{len(st.session_state.remaining_categories)}** remaining.")
+        n_done = len(manual_selected)
+        n_rem = len(st.session_state.remaining_categories)
+        st.success(f"**{n_done}** complete, **{n_rem}** remaining.")
         st.rerun()
 
 # Progress pills when we have data
 if st.session_state.completed_categories is not None and st.session_state.data_source:
-    st.markdown('<div class="byu-progress-section">', unsafe_allow_html=True)
-    st.markdown('<p class="byu-progress-title">Completed</p>', unsafe_allow_html=True)
-    _none_span = '<span style="color:#888;">None</span>'
+    _none_span = '<span style="color:#aaa;font-size:0.85rem;">None</span>'
     done_html = "".join(
-        f'<span class="byu-pill byu-pill-done">✓ {cat}</span>'
+        f'<span class="byu-pill byu-pill-done">&#10003; {cat}</span>'
         for cat in sorted(st.session_state.completed_categories)
     )
-    st.markdown(f'<div class="byu-card">{done_html or _none_span}</div>', unsafe_allow_html=True)
-    st.markdown('<p class="byu-progress-title">Remaining</p>', unsafe_allow_html=True)
     rem = st.session_state.remaining_categories or set()
     rem_html = "".join(
         f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in sorted(rem)
     )
-    st.markdown(f'<div class="byu-card">{rem_html or _none_span}</div>', unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown(f"""
+<div style="margin:1.5rem 0 0.5rem">
+  <p class="byu-progress-title">Completed</p>
+  <div class="byu-card" style="padding:1rem 1.25rem">{done_html or _none_span}</div>
+  <p class="byu-progress-title" style="margin-top:0.75rem">Remaining</p>
+  <div class="byu-card" style="padding:1rem 1.25rem">{rem_html or _none_span}</div>
+</div>
+""", unsafe_allow_html=True)
 
 st.divider()
 
-# ── Blackout times ─────────────────────────────────────────────────
-st.markdown("## Step 2 — When are you unavailable?")
-st.caption("Click a time slot to block it (dark) or unblock it (green). Blocked times will be excluded from recommended sections.")
-blackout_cells = set(st.session_state.blackout_cells)
+# ── Step 2: Blackout times ─────────────────────────────────────────
+st.markdown("""
+<div class="byu-step">
+  <div class="byu-step-num">2</div>
+  <div class="byu-step-label">When are you unavailable?</div>
+</div>
+""", unsafe_allow_html=True)
+st.caption("Click a slot to block it. Blocked times will be excluded from recommended sections.")
 
-# Quick-fill buttons
+blackout_cells = set(st.session_state.blackout_cells)
 qf1, qf2, qf3 = st.columns(3)
 with qf1:
     if st.button("Block mornings before 9am", key="qf_mornings"):
         for d in range(5):
-            for s in range(4):  # 7:00, 7:30, 8:00, 8:30
+            for s in range(4):
                 blackout_cells.add((d, s))
         st.session_state.blackout_cells = blackout_cells
         st.rerun()
 with qf2:
     if st.button("Block evenings after 6pm", key="qf_evenings"):
         for d in range(5):
-            for s in range(22, 28):  # 18:00–21:00
+            for s in range(22, 28):
                 blackout_cells.add((d, s))
         st.session_state.blackout_cells = blackout_cells
         st.rerun()
@@ -181,7 +200,7 @@ with qf3:
         st.session_state.blackout_cells = set()
         st.rerun()
 
-# Grid: 28 rows (time slots) × 5 columns (days). Each cell is a checkbox.
+
 def _time_label(slot: int) -> str:
     h = 7 + slot // 2
     m = (slot % 2) * 30
@@ -189,11 +208,12 @@ def _time_label(slot: int) -> str:
         return f"{h}:{m:02d}am"
     if h == 12:
         return f"12:{m:02d}pm"
-    return f"{h-12}:{m:02d}pm"
+    return f"{h - 12}:{m:02d}pm"
+
 
 new_blackout_cells = set()
 for slot in range(SLOTS_7AM_9PM):
-    cols = st.columns([1] + [1] * 5)  # time label + Mon..Fri
+    cols = st.columns([1] + [1] * 5)
     with cols[0]:
         st.caption(_time_label(slot))
     for day in range(5):
@@ -209,8 +229,14 @@ st.session_state.blackout_cells = new_blackout_cells
 
 st.divider()
 
-# ── Preferences ────────────────────────────────────────────────────
-st.markdown("## Step 3 — Preferences")
+# ── Step 3: Preferences ────────────────────────────────────────────
+st.markdown("""
+<div class="byu-step">
+  <div class="byu-step-num">3</div>
+  <div class="byu-step-label">Preferences</div>
+</div>
+""", unsafe_allow_html=True)
+
 pref_col1, pref_col2 = st.columns(2)
 with pref_col1:
     st.session_state.preferred_days = st.radio(
@@ -236,14 +262,13 @@ with pref_col2:
 
 st.divider()
 
-# ── CTA: Find My GE Courses ───────────────────────────────────────
+# ── CTA ────────────────────────────────────────────────────────────
 if st.session_state.completed_categories is None and not st.session_state.manual_completed:
     st.warning("Upload your degree audit PDF or use Manual Entry before running the optimizer.")
 else:
-    # Persist blackout as list of (day, start, end) for Results page
     st.session_state.blackout_slots = _blackout_slots_from_cells(st.session_state.blackout_cells)
 
-if st.button("Find My GE Courses →", type="primary", key="goto_results"):
+if st.button("Find My GE Courses", type="primary", key="goto_results"):
     if st.session_state.completed_categories is None and not st.session_state.manual_completed:
         st.error("Please upload a PDF or use Manual Entry first.")
     else:

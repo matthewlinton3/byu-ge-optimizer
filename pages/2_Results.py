@@ -27,7 +27,6 @@ if not st.session_state.get("setup_done") or st.session_state.get("completed_cat
         st.switch_page("pages/1_Setup.py")
     st.stop()
 
-# Ensure blackout_slots exists (list of (day, start, end))
 if "blackout_slots" not in st.session_state:
     st.session_state.blackout_slots = []
 
@@ -40,9 +39,28 @@ preferred_days = st.session_state.get("preferred_days") or "No preference"
 preferred_start = st.session_state.get("preferred_start") or "Mid"
 minimize_gaps = st.session_state.get("minimize_gaps", True)
 
-# ── Back to Setup ──────────────────────────────────────────────────
-if st.button("← Back to Setup", key="back_setup"):
-    st.switch_page("pages/1_Setup.py")
+# ── Back button + inline options bar ──────────────────────────────
+back_col, opt_col = st.columns([1, 3])
+with back_col:
+    if st.button("Back to Setup", key="back_setup"):
+        st.switch_page("pages/1_Setup.py")
+
+# Options in a compact expander instead of sidebar
+with st.expander("Options", expanded=False):
+    opt1, opt2, opt3, opt4 = st.columns(4)
+    with opt1:
+        use_ilp = st.toggle("ILP Optimization", value=True, help="Minimum courses. Turn off for faster greedy.")
+    with opt2:
+        skip_rmp = st.toggle("Skip RMP Ratings", value=False, help="Faster run, no professor data.")
+    with opt3:
+        refresh = st.toggle("Refresh Catalog", value=False, help="Re-scrape BYU catalog (slow).")
+    with opt4:
+        sort_priority = st.radio(
+            "Sort by",
+            options=["Balanced", "Fewest Classes", "Best Professor", "Easiest Classes"],
+            index=0,
+            key="sort_priority",
+        )
 
 st.markdown("## Results")
 
@@ -52,33 +70,17 @@ prog_col1, prog_col2 = st.columns(2)
 with prog_col1:
     st.markdown("**Completed**")
     done_pills = "".join(
-        f'<span class="byu-pill byu-pill-done">✓ {cat}</span>'
+        f'<span class="byu-pill byu-pill-done">&#10003; {cat}</span>'
         for cat in sorted(completed_categories)
     )
-    st.markdown(f'<div class="ge-pills">{done_pills or "—"}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="ge-pills">{done_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 with prog_col2:
     st.markdown("**Remaining**")
     rem_pills = "".join(
         f'<span class="byu-pill byu-pill-remaining">{cat}</span>'
         for cat in sorted(remaining_categories)
     )
-    st.markdown(f'<div class="ge-pills">{rem_pills or "—"}</div>', unsafe_allow_html=True)
-
-# ── Run optimizer (once) and cache in session state ─────────────────
-with st.sidebar:
-    st.markdown("### Options")
-    use_ilp = st.toggle("ILP Optimization", value=True, help="Minimum courses. Turn off for faster greedy.")
-    skip_rmp = st.toggle("Skip RMP Ratings", value=False, help="Faster run, no professor data.")
-    refresh = st.toggle("Refresh Catalog", value=False, help="Re-scrape BYU catalog (slow).")
-    st.divider()
-    st.markdown("### Sort results by")
-    sort_priority = st.radio(
-        "Sort results by",
-        options=["Balanced", "Fewest Classes", "Best Professor", "Easiest Classes"],
-        index=0,
-        label_visibility="collapsed",
-        key="sort_priority",
-    )
+    st.markdown(f'<div class="ge-pills">{rem_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 
 
 def run_optimizer(use_ilp, skip_rmp, refresh, remaining_reqs, courses_taken_set):
@@ -197,16 +199,16 @@ st.markdown("### GE coverage")
 p1, p2, p3 = st.columns(3)
 with p1:
     st.markdown("**Completed**")
-    done_pills = "".join(f'<span class="byu-pill byu-pill-done">✓ {cat}</span>' for cat in sorted(completed_categories))
-    st.markdown(f'<div class="ge-pills">{done_pills or "—"}</div>', unsafe_allow_html=True)
+    done_pills = "".join(f'<span class="byu-pill byu-pill-done">&#10003; {cat}</span>' for cat in sorted(completed_categories))
+    st.markdown(f'<div class="ge-pills">{done_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 with p2:
     st.markdown("**Covered by recommendations**")
     cov_pills = "".join(f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in sorted(covered_by_optimizer))
-    st.markdown(f'<div class="ge-pills">{cov_pills or "—"}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="ge-pills">{cov_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 with p3:
     st.markdown("**Still uncovered**")
     unc_pills = "".join(f'<span class="byu-pill byu-pill-uncovered">{cat}</span>' for cat in sorted(uncovered))
-    st.markdown(f'<div class="ge-pills">{unc_pills or "None"}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="ge-pills">{unc_pills or "&#8212;"}</div>', unsafe_allow_html=True)
 
 total_done = len(completed_categories) + len(covered_by_optimizer)
 st.progress(total_done / len(all_cats))
@@ -293,7 +295,7 @@ with tab2:
     with col_a:
         st.markdown("**Completed**")
         for cat in sorted(completed_categories):
-            st.markdown(f'<span class="byu-pill byu-pill-done">✓ {cat}</span>', unsafe_allow_html=True)
+            st.markdown(f'<span class="byu-pill byu-pill-done">&#10003; {cat}</span>', unsafe_allow_html=True)
     with col_b:
         st.markdown("**Covered by optimizer**")
         for cat in sorted(covered_by_optimizer):
