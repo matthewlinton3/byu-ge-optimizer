@@ -34,6 +34,8 @@ BYU_SCHOOL_ID = "U2Nob29sLTEzNQ=="  # BYU's RMP school ID (base64 encoded)
 
 RMP_GRAPHQL_URL = "https://www.ratemyprofessors.com/graphql"
 
+_FALLBACK_AUTH = "Basic dGVzdDp0ZXN0"  # RMP's known public token (test:test)
+
 RMP_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -41,10 +43,50 @@ RMP_HEADERS = {
     ),
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "Authorization": "Basic dGVzdDp0ZXN0",  # RMP's public auth token
+    "Authorization": _FALLBACK_AUTH,
     "Origin": "https://www.ratemyprofessors.com",
     "Referer": "https://www.ratemyprofessors.com/",
 }
+
+
+def _refresh_auth_token() -> str:
+    """
+    Try to scrape a fresh Authorization token from the RMP homepage JS bundle.
+    RMP embeds their auth token in the compiled JS as 'Authorization":"Basic <b64>'.
+    Falls back to the known hardcoded token if the scrape fails.
+    """
+    try:
+        resp = requests.get(
+            "https://www.ratemyprofessors.com",
+            headers={
+                "User-Agent": RMP_HEADERS["User-Agent"],
+                "Accept": "text/html,application/xhtml+xml",
+            },
+            timeout=10,
+        )
+        # Look for Authorization: Basic <base64> in the HTML/JS
+        m = re.search(r'"Authorization"\s*:\s*"(Basic [A-Za-z0-9+/=]+)"', resp.text)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return _FALLBACK_AUTH
+
+
+def _get_rmp_headers() -> dict:
+    """
+    Return RMP_HEADERS with a potentially-refreshed auth token.
+    Calls _refresh_auth_token() on first use; result is cached in-process.
+    """
+    global _cached_auth_token
+    if _cached_auth_token is None:
+        _cached_auth_token = _refresh_auth_token()
+    headers = dict(RMP_HEADERS)
+    headers["Authorization"] = _cached_auth_token
+    return headers
+
+
+_cached_auth_token: str | None = None
 
 # Paginated teacher search — empty text returns all BYU professors in rating order
 _PAGED_QUERY = """
@@ -132,6 +174,9 @@ def _fetch_all_byu_professors(max_pages: int = 20) -> list[dict]:
     Paginate through BYU professors on RMP (empty-text search).
     Returns up to max_pages * 20 professor dicts, each with:
       name, rating, difficulty, would_take_again, num_ratings, department, rmp_id
+
+    Handles 429 rate-limit and 403 auth errors gracefully: retries once with a
+    refreshed token on 401/403, gives up silently on 429 (rate-limited).
     """
     professors = []
     cursor = None
@@ -146,9 +191,28 @@ def _fetch_all_byu_professors(max_pages: int = 20) -> list[dict]:
                     "cursor": cursor,
                 },
             }
+            headers = _get_rmp_headers()
             resp = requests.post(
-                RMP_GRAPHQL_URL, headers=RMP_HEADERS, json=payload, timeout=10
+                RMP_GRAPHQL_URL, headers=headers, json=payload, timeout=10
             )
+
+            if resp.status_code == 429:
+                # Rate-limited — return whatever we've collected so far
+                print("[rmp] Rate-limited by RateMyProfessors (429). Returning partial results.")
+                break
+
+            if resp.status_code in (401, 403):
+                # Auth failed — reset cached token and retry once with a fresh one
+                global _cached_auth_token
+                _cached_auth_token = None
+                headers = _get_rmp_headers()
+                resp = requests.post(
+                    RMP_GRAPHQL_URL, headers=headers, json=payload, timeout=10
+                )
+                if resp.status_code != 200:
+                    print(f"[rmp] Auth error ({resp.status_code}) even after token refresh. Skipping RMP.")
+                    break
+
             if resp.status_code != 200:
                 break
 
