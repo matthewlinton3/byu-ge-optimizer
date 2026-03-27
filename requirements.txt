@@ -11,3 +11,4 @@ webdriver-manager
 rapidfuzz
 pytesseract
 Pillow
+playwright>=1.40.0
