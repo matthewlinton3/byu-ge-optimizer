@@ -3,18 +3,21 @@ BYU GE Optimizer — Setup page (page 1).
 Hero, PDF upload, blackout times grid, preferences, CTA to Results.
 """
 
+import os
 import streamlit as st
+import streamlit.components.v1 as components
 from styles import inject_styles
 from scraper import GE_CATEGORIES
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from ge_requirements import GE_REQUIREMENTS, is_category_complete
 from pathways import get_remaining_requirements
 
+_COMPONENT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "components", "blackout_calendar")
+_blackout_calendar = components.declare_component("blackout_calendar", path=_COMPONENT_DIR)
+
 inject_styles()
 
 # ── Session state defaults ───────────────────────────────────────
-DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri"]
-SLOTS_7AM_9PM = 28  # 7:00–9:00 pm = 28 half-hour slots
 
 for key, default in [
     ("courses_taken", set()),
@@ -157,55 +160,18 @@ st.divider()
 
 # ── Blackout times ─────────────────────────────────────────────────
 st.markdown("## Step 2 — When are you unavailable?")
-st.caption("Click a time slot to block it (dark) or unblock it (green). Blocked times will be excluded from recommended sections.")
-blackout_cells = set(st.session_state.blackout_cells)
+st.caption("Click and drag to block times (navy). Drag again to unblock. Blocked times are excluded from recommended sections.")
 
-# Quick-fill buttons
-qf1, qf2, qf3 = st.columns(3)
-with qf1:
-    if st.button("Block mornings before 9am", key="qf_mornings"):
-        for d in range(5):
-            for s in range(4):  # 7:00, 7:30, 8:00, 8:30
-                blackout_cells.add((d, s))
-        st.session_state.blackout_cells = blackout_cells
-        st.rerun()
-with qf2:
-    if st.button("Block evenings after 6pm", key="qf_evenings"):
-        for d in range(5):
-            for s in range(22, 28):  # 18:00–21:00
-                blackout_cells.add((d, s))
-        st.session_state.blackout_cells = blackout_cells
-        st.rerun()
-with qf3:
-    if st.button("Clear all blackout times", key="qf_clear"):
-        st.session_state.blackout_cells = set()
-        st.rerun()
+# Convert stored set of (day, slot) tuples to list-of-lists for the component
+_current_selected = [list(cell) for cell in st.session_state.blackout_cells]
 
-# Grid: 28 rows (time slots) × 5 columns (days). Each cell is a checkbox.
-def _time_label(slot: int) -> str:
-    h = 7 + slot // 2
-    m = (slot % 2) * 30
-    if h < 12:
-        return f"{h}:{m:02d}am"
-    if h == 12:
-        return f"12:{m:02d}pm"
-    return f"{h-12}:{m:02d}pm"
+raw = _blackout_calendar(selected=_current_selected, key="blackout_cal", default=_current_selected)
 
-new_blackout_cells = set()
-for slot in range(SLOTS_7AM_9PM):
-    cols = st.columns([1] + [1] * 5)  # time label + Mon..Fri
-    with cols[0]:
-        st.caption(_time_label(slot))
-    for day in range(5):
-        with cols[day + 1]:
-            if st.checkbox(
-                DAY_NAMES[day][0],
-                value=(day, slot) in blackout_cells,
-                key=f"bo_{day}_{slot}",
-                label_visibility="collapsed",
-            ):
-                new_blackout_cells.add((day, slot))
-st.session_state.blackout_cells = new_blackout_cells
+# raw is a list of [day, slot] pairs returned by the component
+if raw is not None:
+    new_cells = set(tuple(pair) for pair in raw)
+    if new_cells != st.session_state.blackout_cells:
+        st.session_state.blackout_cells = new_cells
 
 st.divider()
 
