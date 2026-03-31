@@ -5,7 +5,6 @@ Dark-theme hero, input tabs (MyMap CAS / PDF / Manual), blackout grid, preferenc
 import os
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from styles import inject_styles
 from scraper import GE_CATEGORIES
@@ -14,9 +13,7 @@ from ge_requirements import GE_REQUIREMENTS, is_category_complete
 from pathways import get_remaining_requirements
 from cas_auth import cas_login_url, cas_validate_ticket
 from degreeworks_scraper import scrape_degreeworks_sync
-
-_COMPONENT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "components", "blackout_calendar")
-_blackout_calendar = components.declare_component("blackout_calendar", path=_COMPONENT_DIR)
+from calendar_component import blackout_calendar as _blackout_calendar
 
 inject_styles()
 
