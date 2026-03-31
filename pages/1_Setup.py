@@ -14,6 +14,8 @@ from pathways import get_remaining_requirements
 from cas_auth import cas_login_url, cas_validate_ticket
 from degreeworks_scraper import scrape_degreeworks_sync
 from calendar_component import blackout_calendar as _blackout_calendar
+from major_scraper import get_major_options_for_ui
+from major_requirements import MajorSolver
 
 inject_styles()
 
@@ -42,6 +44,8 @@ for key, default in [
     ("schedule_options", None),
     ("schedule_index", 0),
     ("dw_debug", None),
+    ("major_slug", None),
+    ("major_state", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -337,10 +341,55 @@ if st.session_state.completed_categories is not None and st.session_state.data_s
 
 st.divider()
 
-# ── Step 2: Blackout times ─────────────────────────────────────────
+# ── Major selection ────────────────────────────────────────────────
 st.markdown("""
 <div class="byu-step-header">
   <div class="byu-step-num">2</div>
+  <div>
+    <div class="byu-step-title">Select your major <span style="font-weight:400;font-size:0.85em;opacity:0.7">(optional)</span></div>
+    <div class="byu-step-desc">Finds courses that satisfy both your major requirements and GE credits</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+_major_options = get_major_options_for_ui()
+_major_labels = ["— No major selected —"] + [name for name, slug, college in _major_options]
+_major_slugs  = [None] + [slug for name, slug, college in _major_options]
+_current_slug_idx = _major_slugs.index(st.session_state.major_slug) if st.session_state.major_slug in _major_slugs else 0
+_selected_label = st.selectbox("Your major", options=_major_labels, index=_current_slug_idx, key="major_select")
+_new_slug = _major_slugs[_major_labels.index(_selected_label)]
+if _new_slug != st.session_state.major_slug:
+    st.session_state.major_slug = _new_slug
+    st.session_state.major_state = None
+    st.session_state.results = None
+
+if st.session_state.major_slug:
+    _solver = MajorSolver()
+    _taken = st.session_state.get("courses_taken") or set()
+    _mstate = _solver.solve(st.session_state.major_slug, _taken)
+    st.session_state.major_state = _mstate
+    st.progress(_mstate.completion_pct, text=f"{int(_mstate.completion_pct * 100)}% of major requirements complete")
+    _mcol1, _mcol2 = st.columns(2)
+    with _mcol1:
+        st.markdown("**Completed**")
+        for gs in _mstate.completed_groups:
+            st.markdown(f'<span class="byu-pill byu-pill-done">&#10003; {gs.group.group_name}</span>', unsafe_allow_html=True)
+        if not _mstate.completed_groups:
+            st.caption("None yet")
+    with _mcol2:
+        st.markdown("**Still needed**")
+        for gs in _mstate.remaining_groups:
+            still = f" ({gs.courses_still_needed} more)" if gs.courses_still_needed > 1 else ""
+            st.markdown(f'<span class="byu-pill byu-pill-remaining">{gs.group.group_name}{still}</span>', unsafe_allow_html=True)
+        if not _mstate.remaining_groups:
+            st.success("All major requirements complete!")
+
+st.divider()
+
+# ── Step 4: Blackout times ─────────────────────────────────────────
+st.markdown("""
+<div class="byu-step-header">
+  <div class="byu-step-num">4</div>
   <div>
     <div class="byu-step-title">When are you unavailable?</div>
     <div class="byu-step-desc">Blocked slots are excluded from recommended sections</div>
@@ -357,10 +406,10 @@ if raw is not None:
 
 st.divider()
 
-# ── Step 3: Preferences ────────────────────────────────────────────
+# ── Step 5: Preferences ────────────────────────────────────────────
 st.markdown("""
 <div class="byu-step-header">
-  <div class="byu-step-num">3</div>
+  <div class="byu-step-num">5</div>
   <div>
     <div class="byu-step-title">Preferences</div>
     <div class="byu-step-desc">Tune the optimizer to your schedule</div>
