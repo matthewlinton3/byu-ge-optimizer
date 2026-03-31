@@ -39,6 +39,8 @@ locked_courses = st.session_state.get("locked_courses") or []
 preferred_days = st.session_state.get("preferred_days") or "No preference"
 preferred_start = st.session_state.get("preferred_start") or "Mid"
 minimize_gaps = st.session_state.get("minimize_gaps", True)
+major_slug = st.session_state.get("major_slug") or None
+major_state = st.session_state.get("major_state") or None
 
 # ── Back to Setup ──────────────────────────────────────────────────
 if st.button("← Back to Setup", key="back_setup"):
@@ -93,6 +95,7 @@ def run_optimizer(use_ilp, skip_rmp, refresh, remaining_reqs, courses_taken_set)
             use_ilp=use_ilp,
             remaining_requirements=remaining_reqs,
             courses_taken=courses_taken_set or None,
+            major_slug=st.session_state.get("major_slug") or None,
         )
         st.write(f"Selected {len(selected)} courses")
         if not skip_rmp:
@@ -132,6 +135,7 @@ else:
         use_ilp=use_ilp,
         remaining_requirements=remaining_after_lock,
         courses_taken=courses_taken or None,
+        major_slug=major_slug,
     )
     if not skip_rmp:
         selected = enrich_with_rmp(selected, refresh=refresh)
@@ -222,7 +226,12 @@ m5.metric("Double-dippers", len(double_dippers))
 st.divider()
 
 # ── Recommended course cards (with sections filtered by blackout) ───
-tab1, tab2, tab3 = st.tabs(["Recommended courses", "Full GE map", "Double-dippers"])
+_tab_labels = ["Recommended courses", "Full GE map", "Double-dippers"]
+if major_slug:
+    _tab_labels.append("Major requirements")
+_tabs = st.tabs(_tab_labels)
+tab1, tab2, tab3 = _tabs[0], _tabs[1], _tabs[2]
+tab_major = _tabs[3] if major_slug else None
 
 with tab1:
     st.caption(f"Sorted by: **{sort_priority}**. Sections that conflict with your blackout times are hidden.")
@@ -311,17 +320,80 @@ with tab2:
             st.success("All remaining requirements covered.")
 
 with tab3:
-    if double_dippers:
-        for c in sorted(double_dippers, key=lambda x: -len(x.get("ge_categories_all", x.get("ge_categories", [])))):
-            cats_all = c.get("ge_categories_all", c.get("ge_categories", []))
-            cats_rem = c.get("ge_categories", [])
-            with st.container(border=True):
-                st.markdown(f"**{c['course_code']}** — {c['course_name']}")
-                pills = "".join(f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in cats_rem)
-                st.markdown(pills, unsafe_allow_html=True)
-                st.caption(f"Covers {len(cats_all)} categories · {len(cats_rem)} still needed")
+    # GE-to-GE double dippers
+    ge_dippers = [c for c in selected if len(c.get("ge_categories_all", c.get("ge_categories", []))) > 1]
+    major_dippers = [c for c in selected if c.get("major_req_groups")]
+
+    if ge_dippers or major_dippers:
+        if ge_dippers:
+            st.markdown("**GE double-dippers** — satisfy 2+ GE categories")
+            for c in sorted(ge_dippers, key=lambda x: -len(x.get("ge_categories_all", x.get("ge_categories", [])))):
+                cats_all = c.get("ge_categories_all", c.get("ge_categories", []))
+                cats_rem = c.get("ge_categories", [])
+                with st.container(border=True):
+                    st.markdown(f"**{c['course_code']}** — {c['course_name']}")
+                    pills = "".join(f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in cats_rem)
+                    st.markdown(pills, unsafe_allow_html=True)
+                    st.caption(f"Covers {len(cats_all)} GE categories · {len(cats_rem)} still needed")
+        if major_dippers:
+            st.markdown("**GE + Major double-dippers** — satisfy a GE requirement AND your major")
+            for c in sorted(major_dippers, key=lambda x: -len(x.get("major_req_groups", []))):
+                cats_rem = c.get("ge_categories", [])
+                maj_groups = c.get("major_req_groups", [])
+                with st.container(border=True):
+                    st.markdown(f"**{c['course_code']}** — {c['course_name']}")
+                    ge_pills = "".join(f'<span class="byu-pill byu-pill-remaining">{cat}</span>' for cat in cats_rem)
+                    maj_pills = "".join(f'<span class="byu-pill" style="background:#D4A017;color:#000;">{g}</span>' for g in maj_groups)
+                    st.markdown(ge_pills + maj_pills, unsafe_allow_html=True)
+                    st.caption(f"Satisfies {len(cats_rem)} GE categories + {len(maj_groups)} major requirement(s)")
     else:
         st.info("No double-dipping courses in this selection.")
+
+if tab_major is not None:
+    with tab_major:
+        if major_state is None:
+            st.info("No major state available. Go back to Setup and select your major.")
+        else:
+            st.markdown(f"### {major_state.major_name}")
+            st.progress(major_state.completion_pct,
+                        text=f"{int(major_state.completion_pct * 100)}% complete")
+
+            _recommended_codes = {c["course_code"] for c in selected}
+
+            col_done, col_rem = st.columns(2)
+            with col_done:
+                st.markdown("**Completed**")
+                if major_state.completed_groups:
+                    for gs in major_state.completed_groups:
+                        taken_str = ", ".join(gs.courses_taken_in_group) if gs.courses_taken_in_group else "satisfied"
+                        st.markdown(
+                            f'<span class="byu-pill byu-pill-done">✓ {gs.group.group_name}</span>'
+                            f'<span style="color:#666;font-size:0.75rem;margin-left:6px;">{taken_str}</span>',
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.caption("None yet")
+
+            with col_rem:
+                st.markdown("**Still needed**")
+                if major_state.remaining_groups:
+                    for gs in major_state.remaining_groups:
+                        rec_in_pool = [c for c in gs.remaining_pool if c in _recommended_codes]
+                        badge = ""
+                        if rec_in_pool:
+                            badge = f'<span style="background:#0062B8;color:#fff;border-radius:4px;padding:1px 6px;font-size:0.7rem;margin-left:4px;">→ {rec_in_pool[0]} recommended</span>'
+                        still = f" ({gs.courses_still_needed} more)" if gs.courses_still_needed > 1 else ""
+                        st.markdown(
+                            f'<span class="byu-pill byu-pill-remaining">{gs.group.group_name}{still}</span>{badge}',
+                            unsafe_allow_html=True,
+                        )
+                        if gs.remaining_pool:
+                            with st.expander(f"Options for {gs.group.group_name}", expanded=False):
+                                for code in gs.remaining_pool[:15]:
+                                    is_rec = "✓ recommended" if code in _recommended_codes else ""
+                                    st.markdown(f"- `{code}` {is_rec}")
+                else:
+                    st.success("All major requirements complete!")
 
 st.divider()
 

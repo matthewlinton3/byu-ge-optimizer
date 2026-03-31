@@ -117,7 +117,7 @@ def _resolve_requirements(courses_taken, remaining_requirements):
     return requirements, partial_hints
 
 
-def optimize(courses, use_ilp=True, remaining_requirements=None, courses_taken=None):
+def optimize(courses, use_ilp=True, remaining_requirements=None, courses_taken=None, major_slug=None):
     """
     Run optimization. Returns (selected_courses, uncovered_categories).
 
@@ -130,6 +130,12 @@ def optimize(courses, use_ilp=True, remaining_requirements=None, courses_taken=N
     courses_taken         : optional set of course codes already completed.
                             Activates PathwaySolver for universal pathway-aware
                             optimization across ALL 13 GE requirements.
+    major_slug            : optional major slug (e.g. "computer-science-bs").
+                            When set, courses that also satisfy remaining major
+                            requirements get a synthetic boost tag so the ILP/greedy
+                            prefers them as double-dippers. Returned course dicts
+                            gain a "major_req_groups" key listing which major
+                            requirement groups they satisfy.
     """
 
     # ── 1. Resolve which categories still need work ───────────────
@@ -192,6 +198,39 @@ def optimize(courses, use_ilp=True, remaining_requirements=None, courses_taken=N
                 course["ge_categories"] = course["ge_categories"] + extras
             boosted.append(course)
         ge_courses = boosted
+
+    # ── 3b. Tag courses that also satisfy major requirements ──────
+    # Courses that fulfill a remaining major requirement group get a synthetic
+    # "__major_<group>" tag. This makes the ILP/greedy prefer them as double-
+    # dippers without changing the hard GE coverage constraints.
+    # We also annotate each course dict with "major_req_groups" for display.
+    if major_slug and courses_taken is not None:
+        try:
+            from major_requirements import MajorSolver
+            _major_solver = MajorSolver()
+            _major_state = _major_solver.solve(major_slug, set(courses_taken))
+            # Build map: normalized course code → list of group names
+            from major_requirements import _norm as _norm_code
+            _code_to_groups = {}
+            for gs in _major_state.remaining_groups:
+                for code in gs.remaining_pool:
+                    _code_to_groups.setdefault(_norm_code(code), []).append(gs.group.group_name)
+
+            tagged = []
+            for course in ge_courses:
+                norm = _norm_code(course.get("course_code", ""))
+                groups = _code_to_groups.get(norm, [])
+                if groups:
+                    course = dict(course)
+                    course["major_req_groups"] = groups
+                    course["ge_categories"] = course["ge_categories"] + [
+                        f"__major_{g.replace(' ', '_')}" for g in groups
+                    ]
+                ge_courses_tagged = tagged
+                tagged.append(course)
+            ge_courses = tagged
+        except Exception as e:
+            print(f"[optimizer] Major tagging skipped: {e}")
 
     # ── 4. Solve ──────────────────────────────────────────────────
     if use_ilp and HAS_PULP:

@@ -3,17 +3,15 @@ BYU GE Optimizer — Setup page (page 1).
 Hero, PDF upload, blackout times grid, preferences, CTA to Results.
 """
 
-import os
 import streamlit as st
-import streamlit.components.v1 as components
 from styles import inject_styles
 from scraper import GE_CATEGORIES
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from ge_requirements import GE_REQUIREMENTS, is_category_complete
 from pathways import get_remaining_requirements
-
-_COMPONENT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "components", "blackout_calendar")
-_blackout_calendar = components.declare_component("blackout_calendar", path=_COMPONENT_DIR)
+from calendar_component import blackout_calendar as _blackout_calendar
+from major_scraper import get_major_options_for_ui
+from major_requirements import MajorSolver
 
 inject_styles()
 
@@ -40,6 +38,8 @@ for key, default in [
     ("locked_courses", []),
     ("schedule_options", None),
     ("schedule_index", 0),
+    ("major_slug", None),
+    ("major_state", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -158,8 +158,60 @@ if st.session_state.completed_categories is not None and st.session_state.data_s
 
 st.divider()
 
+# ── Major selection ────────────────────────────────────────────────
+st.markdown("## Step 2 — Select Your Major (optional)")
+st.caption("Your major's required courses are checked against GE requirements to find double-dippers that satisfy both.")
+
+_major_options = get_major_options_for_ui()  # list of (name, slug, college)
+_major_labels = ["— No major selected —"] + [name for name, slug, college in _major_options]
+_major_slugs  = [None] + [slug for name, slug, college in _major_options]
+
+_current_slug_idx = 0
+if st.session_state.major_slug in _major_slugs:
+    _current_slug_idx = _major_slugs.index(st.session_state.major_slug)
+
+_selected_label = st.selectbox(
+    "Your major",
+    options=_major_labels,
+    index=_current_slug_idx,
+    key="major_select",
+)
+_new_slug = _major_slugs[_major_labels.index(_selected_label)]
+if _new_slug != st.session_state.major_slug:
+    st.session_state.major_slug = _new_slug
+    st.session_state.major_state = None
+    st.session_state.results = None  # rerun optimizer with new major
+
+if st.session_state.major_slug:
+    _solver = MajorSolver()
+    _taken = st.session_state.get("courses_taken") or set()
+    _mstate = _solver.solve(st.session_state.major_slug, _taken)
+    st.session_state.major_state = _mstate
+
+    _done_pct = int(_mstate.completion_pct * 100)
+    st.progress(_mstate.completion_pct, text=f"{_done_pct}% of major requirements complete")
+
+    _mcol1, _mcol2 = st.columns(2)
+    with _mcol1:
+        st.markdown("**Major requirements completed**")
+        if _mstate.completed_groups:
+            for gs in _mstate.completed_groups:
+                st.markdown(f'<span class="byu-pill byu-pill-done">✓ {gs.group.group_name}</span>', unsafe_allow_html=True)
+        else:
+            st.caption("None yet")
+    with _mcol2:
+        st.markdown("**Still needed**")
+        if _mstate.remaining_groups:
+            for gs in _mstate.remaining_groups:
+                still = f" ({gs.courses_still_needed} more)" if gs.courses_still_needed > 1 else ""
+                st.markdown(f'<span class="byu-pill byu-pill-remaining">{gs.group.group_name}{still}</span>', unsafe_allow_html=True)
+        else:
+            st.success("All major requirements complete!")
+
+st.divider()
+
 # ── Blackout times ─────────────────────────────────────────────────
-st.markdown("## Step 2 — When are you unavailable?")
+st.markdown("## Step 3 — When are you unavailable?")
 st.caption("Click and drag to block times (navy). Drag again to unblock. Blocked times are excluded from recommended sections.")
 
 # Convert stored set of (day, slot) tuples to list-of-lists for the component
@@ -176,7 +228,7 @@ if raw is not None:
 st.divider()
 
 # ── Preferences ────────────────────────────────────────────────────
-st.markdown("## Step 3 — Preferences")
+st.markdown("## Step 4 — Preferences")
 pref_col1, pref_col2 = st.columns(2)
 with pref_col1:
     st.session_state.preferred_days = st.radio(
