@@ -4,36 +4,43 @@
 <meta charset="UTF-8">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; background: transparent; }
+  html, body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 12px;
+    background: #fff;
+    color: #222;
+    min-height: 100%;
+  }
 
   #cal {
     display: grid;
     grid-template-columns: 52px repeat(5, 1fr);
-    border-left: 1px solid #ddd;
-    border-top: 1px solid #ddd;
+    border-left: 1px solid #ccc;
+    border-top: 1px solid #ccc;
     user-select: none;
     -webkit-user-select: none;
+    width: 100%;
   }
 
   .hdr {
-    background: #f8f9fa;
-    border-right: 1px solid #ddd;
-    border-bottom: 1px solid #ddd;
+    background: #f0f2f6;
+    border-right: 1px solid #ccc;
+    border-bottom: 1px solid #ccc;
     text-align: center;
-    font-weight: 600;
-    color: #444;
+    font-weight: 700;
+    color: #333;
     padding: 6px 2px;
     font-size: 12px;
   }
 
   .time-lbl {
-    border-right: 1px solid #ddd;
+    border-right: 1px solid #ccc;
     border-bottom: 1px solid #ddd;
-    color: #888;
+    color: #777;
     font-size: 10px;
     padding: 2px 4px;
     text-align: right;
-    background: #fafafa;
+    background: #f8f9fa;
     line-height: 22px;
     height: 24px;
   }
@@ -44,37 +51,35 @@
     border-bottom: 1px solid #ddd;
     cursor: pointer;
     background: #fff;
-    transition: background 0.05s;
   }
 
   .cell.hour-start {
     border-bottom-color: #bbb;
   }
-
   .time-lbl.hour-start {
     border-bottom-color: #bbb;
-    font-weight: 600;
-    color: #555;
+    font-weight: 700;
+    color: #444;
+    font-size: 11px;
   }
 
   .cell.blocked {
     background: #002E5D;
   }
-
   .cell:hover:not(.blocked) {
-    background: #e3ecf7;
+    background: #dbeafe;
   }
-
   .cell.blocked:hover {
-    background: #003a75;
+    background: #003f82;
   }
 
   #footer {
     display: flex;
     gap: 8px;
     align-items: center;
-    padding: 8px 0 0 0;
+    padding: 8px 0 4px 0;
     flex-wrap: wrap;
+    background: #fff;
   }
 
   .legend {
@@ -82,13 +87,14 @@
     align-items: center;
     gap: 4px;
     font-size: 11px;
-    color: #666;
+    color: #555;
   }
   .legend-swatch {
     width: 14px; height: 14px;
-    border: 1px solid #ccc;
+    border: 1px solid #bbb;
     border-radius: 2px;
     display: inline-block;
+    flex-shrink: 0;
   }
   .legend-swatch.blocked { background: #002E5D; border-color: #002E5D; }
   .legend-swatch.free    { background: #fff; }
@@ -101,9 +107,10 @@
     background: #f5f5f5;
     cursor: pointer;
     color: #333;
+    margin-left: auto;
   }
-  .btn:hover { background: #e8e8e8; }
-  .btn-clear { margin-left: auto; }
+  .btn:first-of-type { margin-left: 12px; }
+  .btn:hover { background: #e0e0e0; }
 </style>
 </head>
 <body>
@@ -112,106 +119,103 @@
 <div id="footer">
   <div class="legend"><span class="legend-swatch blocked"></span> Blocked</div>
   <div class="legend"><span class="legend-swatch free"></span> Available</div>
-  <button class="btn btn-clear" id="btn-clear-mornings">Clear mornings (&lt;9am)</button>
-  <button class="btn btn-clear" id="btn-clear-evenings">Clear evenings (&gt;6pm)</button>
-  <button class="btn btn-clear" id="btn-clear-all">Clear all</button>
+  <button class="btn" id="btn-mornings">Block mornings (&lt;9am)</button>
+  <button class="btn" id="btn-evenings">Block evenings (&gt;6pm)</button>
+  <button class="btn" id="btn-clear">Clear all</button>
 </div>
 
 <script>
-const DAYS = ["Mon","Tue","Wed","Thu","Fri"];
-const SLOTS = 28; // 7:00am–9:00pm in 30-min increments
+const DAYS  = ["Mon","Tue","Wed","Thu","Fri"];
+const SLOTS = 28; // 7am–9pm in 30-min increments
 
-let blocked = new Set(); // "day,slot"
-let dragStart = null;
-let dragMode  = null; // "block" or "unblock"
+let blocked      = new Set();
+let dragStart    = null;
+let dragMode     = null;   // "block" | "unblock"
 let lastDragCell = null;
+let previewSet   = null;   // cells visually changed during drag, not yet committed
 
 function key(d, s) { return d + "," + s; }
 
 function timeLabel(slot) {
   const h = 7 + Math.floor(slot / 2);
   const m = (slot % 2) * 30;
-  if (h < 12) return h + ":" + (m === 0 ? "00" : "30") + "am";
-  if (h === 12) return "12:" + (m === 0 ? "00" : "30") + "pm";
-  return (h - 12) + ":" + (m === 0 ? "00" : "30") + "pm";
+  const mm = m === 0 ? "00" : "30";
+  if (h < 12)  return h + ":" + mm + " am";
+  if (h === 12) return "12:" + mm + " pm";
+  return (h - 12) + ":" + mm + " pm";
+}
+
+function cellEl(d, s) {
+  return document.querySelector(`.cell[data-d="${d}"][data-s="${s}"]`);
 }
 
 function buildGrid(initBlocked) {
-  blocked = new Set(initBlocked.map(([d, s]) => key(d, s)));
+  blocked = new Set((initBlocked || []).map(([d, s]) => key(d, s)));
   const cal = document.getElementById("cal");
   cal.innerHTML = "";
 
   // Header row
-  const cornerEl = document.createElement("div");
-  cornerEl.className = "hdr";
-  cal.appendChild(cornerEl);
+  cal.appendChild(Object.assign(document.createElement("div"), { className: "hdr" }));
   DAYS.forEach(d => {
-    const el = document.createElement("div");
-    el.className = "hdr";
-    el.textContent = d;
-    cal.appendChild(el);
+    cal.appendChild(Object.assign(document.createElement("div"), { className: "hdr", textContent: d }));
   });
 
-  // Time rows
   for (let s = 0; s < SLOTS; s++) {
-    const isHourStart = s % 2 === 0;
+    const isHour = s % 2 === 0;
     const lbl = document.createElement("div");
-    lbl.className = "time-lbl" + (isHourStart ? " hour-start" : "");
-    lbl.textContent = isHourStart ? timeLabel(s) : "";
+    lbl.className = "time-lbl" + (isHour ? " hour-start" : "");
+    lbl.textContent = isHour ? timeLabel(s) : "";
     cal.appendChild(lbl);
 
     for (let d = 0; d < 5; d++) {
       const cell = document.createElement("div");
-      cell.className = "cell" + (isHourStart ? " hour-start" : "");
-      cell.dataset.day  = d;
-      cell.dataset.slot = s;
+      cell.className = "cell" + (isHour ? " hour-start" : "");
+      cell.dataset.d = d;
+      cell.dataset.s = s;
       if (blocked.has(key(d, s))) cell.classList.add("blocked");
       cal.appendChild(cell);
     }
   }
 
   attachEvents();
+  sendHeight();
 }
 
-function cellsInRange(startDay, startSlot, endDay, endSlot) {
-  const minD = Math.min(startDay, endDay);
-  const maxD = Math.max(startDay, endDay);
-  const minS = Math.min(startSlot, endSlot);
-  const maxS = Math.max(startSlot, endSlot);
-  const cells = [];
+function rangeOf(d0, s0, d1, s1) {
+  const minD = Math.min(d0,d1), maxD = Math.max(d0,d1);
+  const minS = Math.min(s0,s1), maxS = Math.max(s0,s1);
+  const out = [];
   for (let d = minD; d <= maxD; d++)
     for (let s = minS; s <= maxS; s++)
-      cells.push([d, s]);
-  return cells;
+      out.push([d, s]);
+  return out;
 }
 
-function applyDrag(startDay, startSlot, curDay, curSlot) {
-  // First, reset all cells to their pre-drag state
-  document.querySelectorAll(".cell").forEach(el => {
-    const d = +el.dataset.day, s = +el.dataset.slot;
-    if (blocked.has(key(d, s))) {
-      el.classList.add("blocked");
-    } else {
-      el.classList.remove("blocked");
-    }
-  });
-
-  // Then apply the current drag range with dragMode
-  const range = cellsInRange(startDay, startSlot, curDay, curSlot);
-  range.forEach(([d, s]) => {
-    const el = document.querySelector(`.cell[data-day="${d}"][data-slot="${s}"]`);
+function applyPreview(d0, s0, d1, s1) {
+  // Reset any cells we painted during the previous preview step
+  if (previewSet) {
+    previewSet.forEach(([d, s]) => {
+      const el = cellEl(d, s);
+      if (!el) return;
+      if (blocked.has(key(d, s))) el.classList.add("blocked");
+      else                        el.classList.remove("blocked");
+    });
+  }
+  previewSet = rangeOf(d0, s0, d1, s1);
+  previewSet.forEach(([d, s]) => {
+    const el = cellEl(d, s);
     if (!el) return;
     if (dragMode === "block") el.classList.add("blocked");
     else                      el.classList.remove("blocked");
   });
 }
 
-function commitDrag(startDay, startSlot, endDay, endSlot) {
-  const range = cellsInRange(startDay, startSlot, endDay, endSlot);
-  range.forEach(([d, s]) => {
+function commitRange(d0, s0, d1, s1) {
+  rangeOf(d0, s0, d1, s1).forEach(([d, s]) => {
     if (dragMode === "block") blocked.add(key(d, s));
     else                      blocked.delete(key(d, s));
   });
+  previewSet = null;
 }
 
 function attachEvents() {
@@ -221,87 +225,72 @@ function attachEvents() {
     const el = e.target.closest(".cell");
     if (!el) return;
     e.preventDefault();
-    const d = +el.dataset.day, s = +el.dataset.slot;
-    dragMode  = blocked.has(key(d, s)) ? "unblock" : "block";
-    dragStart = [d, s];
+    const d = +el.dataset.d, s = +el.dataset.s;
+    dragMode     = blocked.has(key(d, s)) ? "unblock" : "block";
+    dragStart    = [d, s];
     lastDragCell = [d, s];
-    applyDrag(d, s, d, s);
+    applyPreview(d, s, d, s);
   });
 
   cal.addEventListener("mouseover", e => {
     if (!dragStart) return;
     const el = e.target.closest(".cell");
     if (!el) return;
-    const d = +el.dataset.day, s = +el.dataset.slot;
+    const d = +el.dataset.d, s = +el.dataset.s;
     if (lastDragCell && lastDragCell[0] === d && lastDragCell[1] === s) return;
     lastDragCell = [d, s];
-    applyDrag(dragStart[0], dragStart[1], d, s);
+    applyPreview(dragStart[0], dragStart[1], d, s);
   });
 
   document.addEventListener("mouseup", e => {
     if (!dragStart) return;
     const el = document.elementFromPoint(e.clientX, e.clientY)?.closest(".cell");
-    const endDay  = el ? +el.dataset.day  : dragStart[0];
-    const endSlot = el ? +el.dataset.slot : dragStart[1];
-    commitDrag(dragStart[0], dragStart[1], endDay, endSlot);
+    const endD = el ? +el.dataset.d : dragStart[0];
+    const endS = el ? +el.dataset.s : dragStart[1];
+    commitRange(dragStart[0], dragStart[1], endD, endS);
     dragStart = null;
     lastDragCell = null;
     sendValue();
   });
 }
 
-function sendValue() {
-  const selected = [];
-  blocked.forEach(k => {
-    const [d, s] = k.split(",").map(Number);
-    selected.push([d, s]);
-  });
-  window.parent.postMessage({
-    type: "streamlit:setComponentValue",
-    apiVersion: 1,
-    value: selected
-  }, "*");
-}
-
-// Quick-fill buttons
-document.getElementById("btn-clear-mornings").addEventListener("click", () => {
-  for (let d = 0; d < 5; d++)
-    for (let s = 0; s < 4; s++) blocked.add(key(d, s));
-  rebuildVisual(); sendValue();
-});
-document.getElementById("btn-clear-evenings").addEventListener("click", () => {
-  for (let d = 0; d < 5; d++)
-    for (let s = 22; s < 28; s++) blocked.add(key(d, s));
-  rebuildVisual(); sendValue();
-});
-document.getElementById("btn-clear-all").addEventListener("click", () => {
-  blocked.clear(); rebuildVisual(); sendValue();
-});
-
 function rebuildVisual() {
   document.querySelectorAll(".cell").forEach(el => {
-    const d = +el.dataset.day, s = +el.dataset.slot;
-    if (blocked.has(key(d, s))) el.classList.add("blocked");
+    if (blocked.has(key(+el.dataset.d, +el.dataset.s))) el.classList.add("blocked");
     else el.classList.remove("blocked");
   });
 }
 
-// ── Streamlit component API ───────────────────────────────────────
-function onRender(event) {
-  if (event.data.type !== "streamlit:render") return;
-  const args = event.data.args || {};
-  buildGrid(args.selected || []);
+document.getElementById("btn-mornings").addEventListener("click", () => {
+  for (let d = 0; d < 5; d++) for (let s = 0; s < 4; s++) blocked.add(key(d, s));
+  rebuildVisual(); sendValue();
+});
+document.getElementById("btn-evenings").addEventListener("click", () => {
+  for (let d = 0; d < 5; d++) for (let s = 22; s < 28; s++) blocked.add(key(d, s));
+  rebuildVisual(); sendValue();
+});
+document.getElementById("btn-clear").addEventListener("click", () => {
+  blocked.clear(); rebuildVisual(); sendValue();
+});
 
-  // Tell Streamlit our height
-  window.parent.postMessage({
-    type: "streamlit:setFrameHeight",
-    height: document.body.scrollHeight + 40
-  }, "*");
+function sendValue() {
+  const out = [];
+  blocked.forEach(k => { const [d,s] = k.split(",").map(Number); out.push([d,s]); });
+  window.parent.postMessage({ type: "streamlit:setComponentValue", apiVersion: 1, value: out }, "*");
 }
 
-window.addEventListener("message", onRender);
+function sendHeight() {
+  // 29 rows (1 header + 28 slots) × 24px + footer ~48px + 8px padding
+  const h = 29 * 24 + 56;
+  window.parent.postMessage({ type: "streamlit:setFrameHeight", height: h }, "*");
+}
 
-// Signal ready
+// ── Streamlit component lifecycle ─────────────────────────────────
+window.addEventListener("message", e => {
+  if (e.data.type === "streamlit:render") {
+    buildGrid(e.data.args?.selected || []);
+  }
+});
 window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
 </script>
 </body>
