@@ -157,9 +157,13 @@ def optimize(courses, use_ilp=True, remaining_requirements=None, courses_taken=N
     # Strip already-done categories from each course's tag list so the ILP
     # doesn't over-value a double-dipper whose second category is already done.
     # We preserve the full original list as ge_categories_all for display.
+    # Also exclude any course the student has already taken.
     remaining_cat_set = set(requirements.keys())
+    taken_set = set(courses_taken) if courses_taken else set()
     ge_courses = []
     for c in courses:
+        if c.get("course_code") in taken_set:
+            continue
         cats = [cat for cat in c.get("ge_categories", []) if cat in remaining_cat_set]
         if cats:
             pruned = dict(c)

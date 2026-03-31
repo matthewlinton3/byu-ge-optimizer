@@ -67,18 +67,18 @@ st.markdown("## Step 1 — Import Your Degree Audit")
 st.markdown('<div class="byu-card byu-card-upload">', unsafe_allow_html=True)
 col_upload = st.columns([1, 2, 1])
 with col_upload[1]:
-    st.info("🔒 Your PDF is processed in-memory only and never stored or shared.")
-    with st.expander("How to get your MyMap degree audit PDF", expanded=False):
-        st.markdown("""
-1. Go to [mymap.byu.edu](https://mymap.byu.edu) and log in.
-2. Open **Degree Audit** from the sidebar.
-3. Use **Print → Save as PDF** in your browser.
-4. Upload the saved PDF below.
-        """)
+    st.markdown("""
+**How to get your degree audit PDF:**
+1. Open **[mymap.byu.edu](https://mymap.byu.edu)** in a new tab and log in with your BYU NetID.
+2. Click **Degree Audit** in the sidebar.
+3. In your browser, press **File → Print → Save as PDF** (or Ctrl/Cmd+P → Save as PDF).
+4. Upload that PDF here.
+""")
+    st.info("Your PDF is processed in your browser only and is never stored or shared.")
     uploaded_pdf = st.file_uploader(
         "Upload BYU MyMap Degree Audit PDF",
         type=["pdf"],
-        help="MyMap → Degree Audit → Save as PDF",
+        help="MyMap → Degree Audit → Print → Save as PDF",
         key="setup_pdf_upload",
     )
 st.markdown("</div>", unsafe_allow_html=True)
