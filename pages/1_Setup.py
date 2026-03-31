@@ -5,6 +5,7 @@ Dark-theme hero, input tabs (MyMap CAS / PDF / Manual), blackout grid, preferenc
 import os
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from styles import inject_styles
 from scraper import GE_CATEGORIES
@@ -14,11 +15,12 @@ from pathways import get_remaining_requirements
 from cas_auth import cas_login_url, cas_validate_ticket
 from degreeworks_scraper import scrape_degreeworks_sync
 
+_COMPONENT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "components", "blackout_calendar")
+_blackout_calendar = components.declare_component("blackout_calendar", path=_COMPONENT_DIR)
+
 inject_styles()
 
 # ── Session state defaults ───────────────────────────────────────
-DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri"]
-SLOTS_7AM_9PM = 28  # 7:00am–9:00pm = 28 half-hour slots
 
 for key, default in [
     ("courses_taken", set()),
@@ -236,13 +238,13 @@ with tab_pdf:
             '</div>',
             unsafe_allow_html=True,
         )
-        with st.expander("How to get your MyMap degree audit PDF", expanded=False):
-            st.markdown("""
-1. Go to [mymap.byu.edu](https://mymap.byu.edu) and log in.
-2. Open **Degree Audit** from the sidebar.
-3. In your browser use **Print &rarr; Save as PDF**.
-4. Upload the saved PDF below.
-            """)
+        st.markdown("""
+**How to get your degree audit PDF:**
+1. Open **[mymap.byu.edu](https://mymap.byu.edu)** in a new tab and log in with your BYU NetID.
+2. Click **Degree Audit** in the sidebar.
+3. Press **Ctrl/Cmd+P → Save as PDF** in your browser.
+4. Upload that PDF here.
+""")
         uploaded_pdf = st.file_uploader(
             "Upload BYU MyMap Degree Audit PDF",
             type=["pdf"],
@@ -349,53 +351,12 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-blackout_cells = set(st.session_state.blackout_cells)
-qf1, qf2, qf3 = st.columns(3)
-with qf1:
-    if st.button("Block mornings before 9am", key="qf_mornings"):
-        for d in range(5):
-            for s in range(4):
-                blackout_cells.add((d, s))
-        st.session_state.blackout_cells = blackout_cells
-        st.rerun()
-with qf2:
-    if st.button("Block evenings after 6pm", key="qf_evenings"):
-        for d in range(5):
-            for s in range(22, 28):
-                blackout_cells.add((d, s))
-        st.session_state.blackout_cells = blackout_cells
-        st.rerun()
-with qf3:
-    if st.button("Clear all blackout times", key="qf_clear"):
-        st.session_state.blackout_cells = set()
-        st.rerun()
-
-
-def _time_label(slot: int) -> str:
-    h = 7 + slot // 2
-    m = (slot % 2) * 30
-    if h < 12:
-        return f"{h}:{m:02d}am"
-    if h == 12:
-        return f"12:{m:02d}pm"
-    return f"{h - 12}:{m:02d}pm"
-
-
-new_blackout_cells: set = set()
-for slot in range(SLOTS_7AM_9PM):
-    cols = st.columns([1] + [1] * 5)
-    with cols[0]:
-        st.caption(_time_label(slot))
-    for day in range(5):
-        with cols[day + 1]:
-            if st.checkbox(
-                DAY_NAMES[day][0],
-                value=(day, slot) in blackout_cells,
-                key=f"bo_{day}_{slot}",
-                label_visibility="collapsed",
-            ):
-                new_blackout_cells.add((day, slot))
-st.session_state.blackout_cells = new_blackout_cells
+_current_selected = [list(cell) for cell in st.session_state.blackout_cells]
+raw = _blackout_calendar(selected=_current_selected, key="blackout_cal", default=_current_selected)
+if raw is not None:
+    new_cells = set(tuple(pair) for pair in raw)
+    if new_cells != st.session_state.blackout_cells:
+        st.session_state.blackout_cells = new_cells
 
 st.divider()
 
