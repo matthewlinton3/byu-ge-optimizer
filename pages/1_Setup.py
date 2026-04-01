@@ -2,8 +2,6 @@
 BYU GE Optimizer — Setup page (page 1).
 Dark-theme hero, input tabs (MyMap CAS / PDF / Manual), blackout grid, preferences, CTA.
 """
-import os
-
 import streamlit as st
 
 from styles import inject_styles
@@ -11,8 +9,6 @@ from scraper import GE_CATEGORIES
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from ge_requirements import GE_REQUIREMENTS, is_category_complete
 from pathways import get_remaining_requirements
-from cas_auth import cas_login_url, cas_validate_ticket
-from degreeworks_scraper import scrape_degreeworks_sync
 from calendar_component import blackout_calendar as _blackout_calendar
 from major_scraper import get_major_options_for_ui
 from major_requirements import MajorSolver
@@ -62,14 +58,6 @@ def _blackout_slots_from_cells(cells: set) -> list:
     ]
 
 
-def _service_url() -> str:
-    """Build the CAS service_url pointing back to this page."""
-    base = os.environ.get(
-        "APP_BASE_URL",
-        "https://byu-ge-optimizer-production.up.railway.app",
-    ).rstrip("/")
-    return f"{base}/Setup"
-
 
 # ── Hero ──────────────────────────────────────────────────────────
 st.markdown("""
@@ -94,140 +82,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_mymap, tab_pdf, tab_manual = st.tabs(
-    ["🔗 Log in to MyMap", "📄 Upload PDF", "✏️ Manual Entry"]
-)
+tab_pdf, tab_manual = st.tabs(["📄 Upload PDF", "✏️ Manual Entry"])
 
-# ── Tab 1: MyMap — CAS OAuth redirect flow ────────────────────────
-with tab_mymap:
-
-    service_url = _service_url()
-    ticket = st.query_params.get("ticket")
-
-    # ── Case A: CAS just redirected back with a ticket ────────────
-    if ticket:
-        with st.spinner("Verifying BYU login..."):
-            validated = cas_validate_ticket(ticket, service_url)
-
-        if not validated:
-            st.error("BYU login failed or ticket expired. Please try again.")
-            st.query_params.clear()
-        else:
-            net_id = validated["user"]
-            st.success(f"Authenticated as **{net_id}** — loading your degree audit…")
-
-            with st.spinner("Loading DegreeWorks degree audit..."):
-                try:
-                    import requests as _req
-                    sess = _req.Session()
-                    # Exchange the CAS ticket for DegreeWorks session cookies
-                    sess.get(
-                        f"https://degreeworks.byu.edu?ticket={ticket}",
-                        allow_redirects=True,
-                        timeout=15,
-                    )
-                    cas_cookies = [
-                        {
-                            "name": c.name,
-                            "value": c.value,
-                            "domain": c.domain or ".byu.edu",
-                            "path": c.path or "/",
-                        }
-                        for c in sess.cookies
-                    ]
-                    dw_data = scrape_degreeworks_sync(cas_cookies)
-                    st.session_state.dw_debug = {
-                        k: v for k, v in dw_data.items() if k != "raw_html"
-                    }
-
-                    courses_taken = set(dw_data.get("courses_taken") or [])
-                    completed = (
-                        set(dw_data.get("completed_ge") or [])
-                        | _completed_from_courses(courses_taken)
-                    )
-                    remaining = set(GE_CATEGORIES.keys()) - completed
-
-                    st.session_state.completed_categories = completed
-                    st.session_state.remaining_categories = remaining
-                    st.session_state.courses_taken = courses_taken
-                    st.session_state.net_id = net_id
-                    st.session_state.data_source = "mymap"
-                    st.session_state.manual_override = False
-                    if courses_taken:
-                        st.session_state.pathway_state = get_remaining_requirements(
-                            courses_taken, completed
-                        )
-
-                    st.success(
-                        f"Loaded! **{len(courses_taken)}** courses detected, "
-                        f"**{len(completed)}** GE categories complete."
-                    )
-                    # Clear the one-time ticket from the URL
-                    st.query_params.clear()
-
-                except Exception as exc:
-                    st.error(f"Could not load DegreeWorks: {exc}")
-                    st.caption(
-                        "Try again, or use **Upload PDF** / **Manual Entry** instead."
-                    )
-                    st.query_params.clear()
-
-    # ── Case B: Already authenticated this session ─────────────────
-    elif st.session_state.get("data_source") == "mymap":
-        uid = st.session_state.get("net_id", "BYU user")
-        n_done = len(st.session_state.get("completed_categories") or set())
-        st.success(
-            f"Connected as **{uid}** &mdash; **{n_done}** GE categories complete."
-        )
-        if st.button("Disconnect", key="mymap_disconnect"):
-            for k in ["completed_categories", "remaining_categories", "courses_taken",
-                      "net_id", "data_source", "pathway_state", "dw_debug",
-                      "results", "uncovered"]:
-                st.session_state[k] = None
-            st.rerun()
-
-    # ── Case C: Not yet connected — show link button ───────────────
-    else:
-        col_c = st.columns([1, 2, 1])
-        with col_c[1]:
-            if hasattr(st, "html"):
-                st.html("""
-<div style="text-align:center; padding: 1.5rem 0 0.75rem;">
-  <div style="color:#8892A4; font-size:0.9rem; line-height:1.6; margin-bottom:1.5rem;">
-    Sign in with your BYU account. Duo two-factor authentication works normally
-    &mdash; you complete it on BYU&rsquo;s own login page, not here.
-  </div>
-</div>
-""")
-            login_url = cas_login_url(service_url)
-            try:
-                st.link_button(
-                    "Connect MyMap via BYU Login",
-                    login_url,
-                    use_container_width=True,
-                )
-            except AttributeError:
-                st.markdown(
-                    f'<div style="text-align:center; margin-bottom:1rem;">'
-                    f'<a href="{login_url}" target="_self" style="'
-                    f'display:inline-block; background:#0062B8; color:#fff; '
-                    f'padding:0.6rem 1.8rem; border-radius:8px; font-weight:600; '
-                    f'text-decoration:none; font-size:0.95rem;">Connect MyMap via BYU Login</a>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-            if hasattr(st, "html"):
-                st.html("""
-<div style="text-align:center; margin-top:1rem; color:#5A6478; font-size:0.75rem;">
-  You&rsquo;ll be redirected to BYU&rsquo;s secure login page.
-  Your credentials never touch this server.
-</div>
-""")
-
-    # Debug expander (always rendered if debug data exists)
-    if st.session_state.get("dw_debug"):
-        with st.expander("Debug — DegreeWorks parse details", expanded=False):
-            st.json(st.session_state.dw_debug)
+# ── Tab 1: PDF upload ─────────────────────────────────────────────
 
 # ── Tab 2: Upload PDF ──────────────────────────────────────────────
 with tab_pdf:
