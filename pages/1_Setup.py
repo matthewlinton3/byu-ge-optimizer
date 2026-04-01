@@ -9,7 +9,7 @@ from scraper import GE_CATEGORIES
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from ge_requirements import GE_REQUIREMENTS, is_category_complete
 from pathways import get_remaining_requirements
-from calendar_component import blackout_calendar as _blackout_calendar
+from mymap_scraper import login_and_scrape
 from major_scraper import get_major_options_for_ui
 from major_requirements import MajorSolver
 
@@ -28,18 +28,9 @@ for key, default in [
     ("pdf_parse_error", None),
     ("manual_override", False),
     ("manual_completed", set()),
-    ("blackout_cells", set()),
-    ("blackout_slots", []),
-    ("preferred_days", "No preference"),
-    ("preferred_start", "Mid"),
-    ("minimize_gaps", True),
     ("setup_done", False),
     ("results", None),
     ("uncovered", set()),
-    ("locked_courses", []),
-    ("schedule_options", None),
-    ("schedule_index", 0),
-    ("dw_debug", None),
     ("major_slug", None),
     ("major_state", None),
 ]:
@@ -49,13 +40,6 @@ for key, default in [
 
 def _completed_from_courses(courses_taken: set) -> set:
     return {cat for cat in GE_REQUIREMENTS if is_category_complete(cat, courses_taken)}
-
-
-def _blackout_slots_from_cells(cells: set) -> list:
-    return [
-        (day, 7.0 + slot * 0.5, 7.0 + (slot + 1) * 0.5)
-        for (day, slot) in cells
-    ]
 
 
 
@@ -82,9 +66,68 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_pdf, tab_manual = st.tabs(["📄 Upload PDF", "✏️ Manual Entry"])
+tab_mymap, tab_pdf, tab_manual = st.tabs(["🔑 BYU Login", "📄 Upload PDF", "✏️ Manual Entry"])
 
-# ── Tab 1: PDF upload ─────────────────────────────────────────────
+# ── Tab 1: BYU Login (direct server-side CAS login) ───────────────
+with tab_mymap:
+    st.markdown(
+        '<div class="byu-privacy-note">'
+        '&#128274; Your credentials are used only to fetch your degree audit and are never stored.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    if st.session_state.get("data_source") == "mymap":
+        uid = st.session_state.get("net_id", "BYU user")
+        n_done = len(st.session_state.get("completed_categories") or set())
+        st.success(f"Connected as **{uid}** — **{n_done}** GE categories complete.")
+        if st.button("Disconnect", key="mymap_disconnect"):
+            for k in ["completed_categories", "remaining_categories", "courses_taken",
+                      "net_id", "data_source", "pathway_state", "results", "uncovered"]:
+                st.session_state[k] = None
+            st.rerun()
+    else:
+        with st.form("mymap_login_form"):
+            netid_input = st.text_input("BYU NetID", placeholder="e.g. jsmith123")
+            pw_input = st.text_input("BYU Password", type="password")
+            submitted = st.form_submit_button("Load My Degree Audit", type="primary", use_container_width=True)
+
+        if submitted:
+            if not netid_input or not pw_input:
+                st.error("Enter your NetID and password.")
+            else:
+                with st.spinner("Logging in to MyMap..."):
+                    result = login_and_scrape(netid_input, pw_input)
+
+                if result.get("debug", {}).get("duo_detected"):
+                    st.error(
+                        "BYU is asking for Duo two-factor authentication, which can't be "
+                        "completed automatically. Use **Upload PDF** instead."
+                    )
+                elif not result["success"]:
+                    st.error(f"Login failed: {result.get('error', 'Unknown error')}")
+                    st.caption("Double-check your NetID and password, or use Upload PDF.")
+                else:
+                    courses_taken = result.get("completed_courses") or set()
+                    completed = (
+                        set(result.get("ge_completed") or set())
+                        | _completed_from_courses(courses_taken)
+                    )
+                    remaining = set(GE_CATEGORIES.keys()) - completed
+                    st.session_state.completed_categories = completed
+                    st.session_state.remaining_categories = remaining
+                    st.session_state.courses_taken = courses_taken
+                    st.session_state.net_id = netid_input
+                    st.session_state.data_source = "mymap"
+                    st.session_state.manual_override = False
+                    if courses_taken:
+                        st.session_state.pathway_state = get_remaining_requirements(
+                            courses_taken, completed
+                        )
+                    st.success(
+                        f"Loaded! **{len(courses_taken)}** courses detected, "
+                        f"**{len(completed)}** GE categories complete."
+                    )
+                    st.rerun()
 
 # ── Tab 2: Upload PDF ──────────────────────────────────────────────
 with tab_pdf:
@@ -243,77 +286,13 @@ if st.session_state.major_slug:
 
 st.divider()
 
-# ── Step 4: Blackout times ─────────────────────────────────────────
-st.markdown("""
-<div class="byu-step-header">
-  <div class="byu-step-num">4</div>
-  <div>
-    <div class="byu-step-title">When are you unavailable?</div>
-    <div class="byu-step-desc">Blocked slots are excluded from recommended sections</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-_current_selected = [list(cell) for cell in st.session_state.blackout_cells]
-raw = _blackout_calendar(selected=_current_selected, key="blackout_cal", default=_current_selected)
-if raw is not None:
-    new_cells = set(tuple(pair) for pair in raw)
-    if new_cells != st.session_state.blackout_cells:
-        st.session_state.blackout_cells = new_cells
-
-st.divider()
-
-# ── Step 5: Preferences ────────────────────────────────────────────
-st.markdown("""
-<div class="byu-step-header">
-  <div class="byu-step-num">5</div>
-  <div>
-    <div class="byu-step-title">Preferences</div>
-    <div class="byu-step-desc">Tune the optimizer to your schedule</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-pref_col1, pref_col2 = st.columns(2)
-with pref_col1:
-    st.session_state.preferred_days = st.radio(
-        "Preferred class days",
-        options=["MWF", "TTh", "No preference"],
-        index=["MWF", "TTh", "No preference"].index(st.session_state.preferred_days),
-        key="pref_days",
-        horizontal=True,
-    )
-    st.session_state.preferred_start = st.radio(
-        "Preferred start time",
-        options=["Early", "Mid", "Late"],
-        index=["Early", "Mid", "Late"].index(st.session_state.preferred_start),
-        key="pref_start",
-        horizontal=True,
-    )
-with pref_col2:
-    st.session_state.minimize_gaps = st.checkbox(
-        "Minimize gaps between classes",
-        value=st.session_state.minimize_gaps,
-        key="pref_gaps",
-    )
-
-st.divider()
-
 # ── CTA ────────────────────────────────────────────────────────────
 if st.session_state.completed_categories is None and not st.session_state.manual_completed:
-    st.warning(
-        "Connect to MyMap, upload your degree audit PDF, or use Manual Entry "
-        "before running the optimizer."
-    )
-else:
-    st.session_state.blackout_slots = _blackout_slots_from_cells(st.session_state.blackout_cells)
+    st.warning("Log in, upload your degree audit PDF, or use Manual Entry before running the optimizer.")
 
 if st.button("Find My GE Courses", type="primary", key="goto_results"):
     if st.session_state.completed_categories is None and not st.session_state.manual_completed:
-        st.error("Please connect to MyMap, upload a PDF, or use Manual Entry first.")
+        st.error("Please log in, upload a PDF, or use Manual Entry first.")
     else:
         st.session_state.setup_done = True
-        st.session_state.blackout_slots = _blackout_slots_from_cells(
-            st.session_state.blackout_cells
-        )
         st.switch_page("pages/2_Results.py")
