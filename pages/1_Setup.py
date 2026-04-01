@@ -14,6 +14,26 @@ from major_requirements import MajorSolver
 
 inject_styles()
 
+# ── Bookmarklet return: ?courses=[...] in URL ────────────────────
+_incoming = st.query_params.get("courses")
+if _incoming and not st.session_state.get("data_source"):
+    import json as _json
+    try:
+        _raw_courses = _json.loads(_incoming)
+        _courses_taken = set(str(c).strip() for c in _raw_courses if c)
+        _completed = {cat for cat in GE_REQUIREMENTS if is_category_complete(cat, _courses_taken)}
+        _remaining = set(GE_CATEGORIES.keys()) - _completed
+        st.session_state.courses_taken = _courses_taken
+        st.session_state.completed_categories = _completed
+        st.session_state.remaining_categories = _remaining
+        st.session_state.data_source = "bookmarklet"
+        if _courses_taken:
+            st.session_state.pathway_state = get_remaining_requirements(_courses_taken, _completed)
+        st.query_params.clear()
+        st.rerun()
+    except Exception:
+        st.query_params.clear()
+
 # ── Session state defaults ───────────────────────────────────────
 
 for key, default in [
@@ -65,9 +85,70 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_pdf, tab_manual = st.tabs(["📄 Upload PDF", "✏️ Manual Entry"])
+_APP_URL = "https://byu-ge-optimizer-production.up.railway.app"
+_BOOKMARKLET_JS = (
+    "javascript:(function(){"
+    "var t=document.body.innerText,"
+    "re=/\\b([A-Z]{2,6}(?:\\s+[A-Z])?\\s+\\d{3}[A-Z]?)\\b/g,"
+    "seen={},courses=[],m;"
+    "while((m=re.exec(t))!==null){"
+    "var k=m[1].replace(/\\s+/,' ');"
+    "if(!seen[k]){seen[k]=1;courses.push(k);}}"
+    "window.location.href='" + _APP_URL + "/?courses='+encodeURIComponent(JSON.stringify(courses));"
+    "})();"
+)
 
-# ── Tab 1: Upload PDF ──────────────────────────────────────────────
+tab_bookmarklet, tab_pdf, tab_manual = st.tabs(["🔖 MyMap Import", "📄 Upload PDF", "✏️ Manual Entry"])
+
+# ── Tab 1: Bookmarklet ────────────────────────────────────────────
+with tab_bookmarklet:
+    if st.session_state.get("data_source") == "bookmarklet":
+        n_courses = len(st.session_state.get("courses_taken") or set())
+        n_done = len(st.session_state.get("completed_categories") or set())
+        st.success(f"Imported from MyMap — **{n_courses}** courses detected, **{n_done}** GE categories complete.")
+        if st.button("Clear and re-import", key="bm_clear"):
+            for k in ["completed_categories", "remaining_categories", "courses_taken",
+                      "data_source", "pathway_state", "results", "uncovered"]:
+                st.session_state[k] = None
+            st.rerun()
+    else:
+        st.markdown("### One-time setup — drag this to your bookmarks bar:")
+        st.markdown(
+            f"""
+<div style="background:#1A1F2E;border:2px dashed #4a9eff;border-radius:10px;
+            padding:1.5rem;text-align:center;margin:1rem 0;">
+  <p style="color:#8892A4;margin-bottom:1rem;font-size:0.9rem;">
+    Drag this button to your browser&rsquo;s bookmarks bar:
+  </p>
+  <a href="{_BOOKMARKLET_JS}"
+     style="display:inline-block;background:#0062B8;color:#fff;
+            padding:0.6rem 1.8rem;border-radius:8px;font-weight:700;
+            text-decoration:none;font-size:1rem;cursor:grab;"
+     onclick="return false;">
+    &#128278; BYU GE Import
+  </a>
+  <p style="color:#5A6478;margin-top:1rem;font-size:0.78rem;">
+    (Right-click &rarr; Bookmark Link if drag doesn&rsquo;t work)
+  </p>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("### Then, every time you want to import:")
+        bc1, bc2, bc3 = st.columns(3)
+        with bc1:
+            st.markdown("**1 — Open MyMap**")
+            st.markdown("Log in normally at mymap.byu.edu with your NetID and Duo.")
+            st.link_button("Open MyMap →", "https://mymap.byu.edu", use_container_width=True)
+        with bc2:
+            st.markdown("**2 — Open Degree Audit**")
+            st.markdown("Click **Degree Audit** in the sidebar and wait for it to load.")
+        with bc3:
+            st.markdown("**3 — Click the bookmark**")
+            st.markdown("Click **BYU GE Import** in your bookmarks bar. You'll be sent back here automatically.")
+
+# ── Tab 2: Upload PDF ──────────────────────────────────────────────
 with tab_pdf:
     st.markdown(
         '<div class="byu-privacy-note">'
