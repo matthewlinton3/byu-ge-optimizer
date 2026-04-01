@@ -9,7 +9,6 @@ from scraper import GE_CATEGORIES
 from pdf_parser import parse_degree_audit, HAS_PDFPLUMBER
 from ge_requirements import GE_REQUIREMENTS, is_category_complete
 from pathways import get_remaining_requirements
-from mymap_scraper import login_and_scrape
 from major_scraper import get_major_options_for_ui
 from major_requirements import MajorSolver
 
@@ -66,92 +65,40 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_mymap, tab_pdf, tab_manual = st.tabs(["🔑 BYU Login", "📄 Upload PDF", "✏️ Manual Entry"])
+tab_pdf, tab_manual = st.tabs(["📄 Upload PDF", "✏️ Manual Entry"])
 
-# ── Tab 1: BYU Login (direct server-side CAS login) ───────────────
-with tab_mymap:
+# ── Tab 1: Upload PDF ──────────────────────────────────────────────
+with tab_pdf:
     st.markdown(
         '<div class="byu-privacy-note">'
-        '&#128274; Your credentials are used only to fetch your degree audit and are never stored.'
+        '&#128274; Your PDF is processed in-memory only and never stored or shared.'
         '</div>',
         unsafe_allow_html=True,
     )
-    if st.session_state.get("data_source") == "mymap":
-        uid = st.session_state.get("net_id", "BYU user")
-        n_done = len(st.session_state.get("completed_categories") or set())
-        st.success(f"Connected as **{uid}** — **{n_done}** GE categories complete.")
-        if st.button("Disconnect", key="mymap_disconnect"):
-            for k in ["completed_categories", "remaining_categories", "courses_taken",
-                      "net_id", "data_source", "pathway_state", "results", "uncovered"]:
-                st.session_state[k] = None
-            st.rerun()
-    else:
-        with st.form("mymap_login_form"):
-            netid_input = st.text_input("BYU NetID", placeholder="e.g. jsmith123")
-            pw_input = st.text_input("BYU Password", type="password")
-            submitted = st.form_submit_button("Load My Degree Audit", type="primary", use_container_width=True)
 
-        if submitted:
-            if not netid_input or not pw_input:
-                st.error("Enter your NetID and password.")
-            else:
-                with st.spinner("Logging in to MyMap..."):
-                    result = login_and_scrape(netid_input, pw_input)
+    st.markdown("### How to get your degree audit PDF")
+    step_col1, step_col2, step_col3 = st.columns(3)
+    with step_col1:
+        st.markdown("""**Step 1 — Open MyMap**
 
-                if result.get("debug", {}).get("duo_detected"):
-                    st.error(
-                        "BYU is asking for Duo two-factor authentication, which can't be "
-                        "completed automatically. Use **Upload PDF** instead."
-                    )
-                elif not result["success"]:
-                    st.error(f"Login failed: {result.get('error', 'Unknown error')}")
-                    st.caption("Double-check your NetID and password, or use Upload PDF.")
-                else:
-                    courses_taken = result.get("completed_courses") or set()
-                    completed = (
-                        set(result.get("ge_completed") or set())
-                        | _completed_from_courses(courses_taken)
-                    )
-                    remaining = set(GE_CATEGORIES.keys()) - completed
-                    st.session_state.completed_categories = completed
-                    st.session_state.remaining_categories = remaining
-                    st.session_state.courses_taken = courses_taken
-                    st.session_state.net_id = netid_input
-                    st.session_state.data_source = "mymap"
-                    st.session_state.manual_override = False
-                    if courses_taken:
-                        st.session_state.pathway_state = get_remaining_requirements(
-                            courses_taken, completed
-                        )
-                    st.success(
-                        f"Loaded! **{len(courses_taken)}** courses detected, "
-                        f"**{len(completed)}** GE categories complete."
-                    )
-                    st.rerun()
+Click below to open MyMap in a new tab and log in with your BYU NetID and Duo.""")
+        st.link_button("Open MyMap →", "https://mymap.byu.edu", use_container_width=True)
+    with step_col2:
+        st.markdown("""**Step 2 — Go to Degree Audit**
 
-# ── Tab 2: Upload PDF ──────────────────────────────────────────────
-with tab_pdf:
-    col_upload = st.columns([1, 3, 1])
-    with col_upload[1]:
-        st.markdown(
-            '<div class="byu-privacy-note">'
-            '&#128274; Your PDF is processed in-memory only and never stored or shared.'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("""
-**How to get your degree audit PDF:**
-1. Open **[mymap.byu.edu](https://mymap.byu.edu)** in a new tab and log in with your BYU NetID.
-2. Click **Degree Audit** in the sidebar.
-3. Press **Ctrl/Cmd+P → Save as PDF** in your browser.
-4. Upload that PDF here.
-""")
-        uploaded_pdf = st.file_uploader(
-            "Upload BYU MyMap Degree Audit PDF",
-            type=["pdf"],
-            help="MyMap > Degree Audit > Print > Save as PDF",
-            key="setup_pdf_upload",
-        )
+In the sidebar click **Degree Audit**, then wait for your audit to load fully.""")
+    with step_col3:
+        st.markdown("""**Step 3 — Save as PDF**
+
+Press **Ctrl+P** (or **Cmd+P** on Mac), choose **Save as PDF**, then upload it below.""")
+
+    st.divider()
+    uploaded_pdf = st.file_uploader(
+        "Upload your MyMap Degree Audit PDF",
+        type=["pdf"],
+        help="MyMap → Degree Audit → Print → Save as PDF",
+        key="setup_pdf_upload",
+    )
 
     if uploaded_pdf is not None:
         if not HAS_PDFPLUMBER:
