@@ -48,7 +48,7 @@ with back_col:
         st.switch_page("pages/1_Setup.py")
 
 with st.expander("Options", expanded=False):
-    opt1, opt2, opt3, opt4 = st.columns(4)
+    opt1, opt2, opt3, opt4, opt5 = st.columns(5)
     with opt1:
         use_ilp = st.toggle("ILP Optimization", value=True, help="Minimum courses. Turn off for faster greedy.")
     with opt2:
@@ -56,6 +56,8 @@ with st.expander("Options", expanded=False):
     with opt3:
         refresh = st.toggle("Refresh Catalog", value=False, help="Re-scrape BYU catalog (slow).")
     with opt4:
+        include_honors = st.toggle("Include Honors", value=False, help="Show Honors-only courses (require Honors program enrollment).")
+    with opt5:
         sort_priority = st.radio(
             "Sort by",
             options=["Balanced", "Fewest Classes", "Best Professor", "Easiest Classes"],
@@ -156,6 +158,21 @@ elif sort_priority == "Fewest Classes":
     selected.sort(key=lambda c: (-num_cats(c), -_rating_for_sort(c), _difficulty_for_sort(c)))
 else:
     selected.sort(key=lambda c: (-num_cats(c), -_rating_for_sort(c), _difficulty_for_sort(c)))
+
+def _is_honors(c):
+    code = c.get("course_code", "")
+    name = c.get("course_name", "")
+    dept = code.split()[0] if code else ""
+    if dept.upper() in ("HONRS", "HON"):
+        return True
+    if code.upper().endswith("H") and len(code) > 1 and code[-2].isdigit():
+        return True
+    if "honors" in name.lower():
+        return True
+    return False
+
+if not include_honors:
+    selected = [c for c in selected if not _is_honors(c)]
 
 all_cats = set(GE_CATEGORIES.keys())
 covered_by_optimizer = all_cats - uncovered - completed_categories
@@ -383,7 +400,7 @@ with tab1:
     if not remaining_after_lock and locked_courses:
         st.success("All remaining GE categories are covered by your locked courses.")
 
-    for c in selected:
+    for idx, c in enumerate(selected, start=1):
         cats = c.get("ge_categories", [])
         profs = c.get("professors", [])
         badge = _rmp_badge(profs)
@@ -413,6 +430,7 @@ with tab1:
         card_html = f"""
 <div class="course-card">
   <div class="course-card-header">
+    <span style="color:#5A6478;font-size:0.85rem;font-weight:600;margin-right:8px;min-width:1.5rem;text-align:right;">{idx}.</span>
     <span class="course-code">{c['course_code']}</span>
     {badge}
   </div>
