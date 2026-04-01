@@ -113,61 +113,37 @@ with tab_bookmarklet:
                 st.session_state[k] = None
             st.rerun()
     else:
-        st.markdown("### Step 1 — Add the bookmark (one time only)")
-        st.caption("Streamlit can't render javascript: links directly, so we use an embedded panel below.")
+        st.markdown("### Step 1 — Create the bookmark (one time only)")
 
-        # Render inside components.v1.html so Streamlit's sanitizer can't strip javascript: hrefs
-        _components.html(
-            f"""
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-  body {{ margin:0; padding:0; background:transparent; font-family: 'Segoe UI', sans-serif; }}
-  .box {{
-    background:#1A1F2E;
-    border:2px dashed #4a9eff;
-    border-radius:10px;
-    padding:1.25rem 1.5rem;
-    text-align:center;
-  }}
-  .label {{
-    color:#8892A4;
-    font-size:0.88rem;
-    margin-bottom:1rem;
-  }}
-  .bm-link {{
-    display:inline-block;
-    background:#0062B8;
-    color:#fff;
-    padding:0.55rem 1.6rem;
-    border-radius:8px;
-    font-weight:700;
-    text-decoration:none;
-    font-size:0.98rem;
-    cursor:grab;
-    user-select:none;
-  }}
-  .bm-link:hover {{ background:#0074d9; }}
-  .hint {{
-    color:#5A6478;
-    font-size:0.75rem;
-    margin-top:0.85rem;
-  }}
-</style>
-</head>
-<body>
-<div class="box">
-  <p class="label">Drag this button to your browser&rsquo;s bookmarks bar:</p>
-  <a class="bm-link" href="{_BOOKMARKLET_JS}">&#128278;&nbsp; BYU GE Import</a>
-  <p class="hint">Can&rsquo;t drag? Right-click the button &rarr; <b>Bookmark Link</b> (Chrome) or <b>Add to Bookmarks</b> (Safari/Firefox)</p>
-</div>
-</body>
-</html>
-""",
-            height=160,
-        )
+        st.markdown("**Copy this code:**")
+        st.code(_BOOKMARKLET_JS, language=None)
 
+        st.markdown("**Then add it as a bookmark in your browser:**")
+
+        ch1, ch2, ch3 = st.columns(3)
+        with ch1:
+            st.markdown("""**Chrome / Edge**
+1. Press **Ctrl+Shift+B** to show the bookmarks bar
+2. Right-click the bookmarks bar → **Add page…**
+3. Set Name: `BYU GE Import`
+4. Paste the copied code as the **URL**
+5. Click **Save**""")
+        with ch2:
+            st.markdown("""**Firefox**
+1. Press **Ctrl+Shift+B** to open the Library
+2. Click **Bookmarks** → **New Bookmark**
+3. Set Name: `BYU GE Import`
+4. Paste the copied code as the **Location**
+5. Click **Add**""")
+        with ch3:
+            st.markdown("""**Safari**
+1. Open **Bookmarks** menu → **Add Bookmark**
+2. Save it anywhere
+3. Open **Bookmarks → Edit Bookmarks**
+4. Find it, double-click the URL and paste the code
+5. Press Enter""")
+
+        st.divider()
         st.markdown("### Step 2 — Import your courses (every time)")
         bc1, bc2, bc3 = st.columns(3)
         with bc1:
@@ -176,10 +152,10 @@ with tab_bookmarklet:
             st.link_button("Open MyMap →", "https://mymap.byu.edu", use_container_width=True)
         with bc2:
             st.markdown("**2 — Open Degree Audit**")
-            st.markdown("Click **Degree Audit** in the MyMap sidebar and let it load fully.")
+            st.markdown("Click **Degree Audit** in the sidebar and wait for it to load fully.")
         with bc3:
             st.markdown("**3 — Click the bookmark**")
-            st.markdown("Click **BYU GE Import** in your bookmarks bar — you'll land back here with your courses loaded.")
+            st.markdown("Click **BYU GE Import** in your bookmarks bar — you'll land back here with everything loaded.")
 
 # ── Tab 2: Upload PDF ──────────────────────────────────────────────
 with tab_pdf:
